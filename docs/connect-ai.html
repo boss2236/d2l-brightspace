@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect your AI</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #f7f7f5; --card: #ffffff; --line: #e6e5e0; --soft: #f1f0ec;
+  --text: #111110; --muted: #62615d; --accent: #2a6fd6; --accent-soft: #e8f0fc; --warn: #9a6700;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --surface: #161615; --card: #1f1f1e; --line: #333331; --soft: #2a2a28;
+  --text: #f3f3f1; --muted: #a9a8a1; --accent: #5b9cf0; --accent-soft: #1d2b40; --warn: #d4a72c;
+} }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #161615; --card: #1f1f1e; --line: #333331; --soft: #2a2a28;
+  --text: #f3f3f1; --muted: #a9a8a1; --accent: #5b9cf0; --accent-soft: #1d2b40; --warn: #d4a72c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+h1 { font-size: 26px; margin: 0; letter-spacing: -0.015em; }
+h2 { font-size: 18px; margin: 36px 0 12px; letter-spacing: -0.01em; }
+p.lead { color: var(--muted); margin: 0 0 8px; max-width: 64ch; }
+button.theme { margin-left: auto; background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; padding: 5px 11px; cursor: pointer; font-size: 13px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 0; }
+nav.toc a { font-size: 13px; padding: 3px 9px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--text); text-decoration: none; }
+nav.toc a:hover { border-color: var(--accent); }
+code, pre { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+p code, li code, td code { font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.cmd p, .cmd td, ol.flow li { overflow-wrap: anywhere; }
+.cmd { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; scroll-margin-top: 16px; }
+.cmd h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cmd h3 .name { font-family: ui-monospace, Menlo, monospace; color: var(--accent); }
+.cmd p { margin: 4px 0 10px; color: var(--muted); }
+.tag { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.tag.net { background: var(--soft); color: var(--warn); }
+.shell { position: relative; background: var(--soft); border-radius: 8px; margin: 8px 0; }
+.shell pre { margin: 0; padding: 10px 44px 10px 12px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
+.shell pre .c { color: var(--muted); }
+.shell button { position: absolute; top: 6px; right: 6px; background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+th, td { text-align: start; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+td:first-child { white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+ol.flow { padding-left: 20px; } ol.flow li { margin-bottom: 6px; }
+.note { border-left: 3px solid var(--warn); background: var(--card); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
+footer { color: var(--muted); font-size: 12.5px; margin-top: 40px; }
+@media (max-width: 640px) { h1 { font-size: 22px; } td:first-child { white-space: normal; } }
+.diagram { font-size: 12.5px; background: var(--soft); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
+</style></head><body><div class="wrap">
+<header>
+  <h1>Connect your AI</h1>
+  <button class="theme" onclick="toggleTheme()" aria-label="Toggle light/dark">◐ theme</button>
+</header>
+<p class="lead">Your Brightspace data (announcements, grades, deadlines, and the text of lecture notes) can be
+connected to any AI that supports <b>MCP</b>, and to any app or n8n workflow through a small <b>REST API</b>.
+Both read the local database that <code>d2l sync</code> keeps up to date, so no AI ever talks to Brightspace directly,
+and everything is read-only.</p>
+<nav class="toc">
+  <a href="#how">How it fits</a><a href="#claude-code">Claude Code</a><a href="#gemini">Gemini CLI</a><a href="#vscode">VS Code Copilot</a>
+  <a href="#codex">Codex</a><a href="#desktop">Claude Desktop / Cursor</a><a href="#http">HTTP clients</a><a href="#web">ChatGPT / web AIs</a>
+  <a href="#n8n">n8n &amp; apps</a><a href="#tools">What the AI can do</a><a href="#rest">REST reference</a>
+</nav>
+
+<h2 id="how">How it fits</h2>
+<div class="cmd">
+<pre class="diagram">Brightspace
+    │  d2l sync (3× a day, read-only)
+    ▼
+data/d2l.db ──┬─▶ d2l mcp     stdio  → Claude Code, Gemini, Copilot, Codex…
+              ├─▶ d2l serve   :8765  → /mcp + /api/*  → n8n, apps, web AIs
+              └─▶ notify             → desktop, Telegram, Discord, webhook</pre>
+<p><b>stdio</b> is the easiest option. The AI app starts <code>d2l mcp</code> by itself, so there's no server to keep running and no token.
+Use <b>HTTP</b> when something can't start a local program, like n8n, a phone app, or a web AI.</p>
+</div>
+
+<h2 id="claude-code">Claude Code</h2>
+<div class="cmd">
+  <p>Register the server once for your user account, so every project can use it:</p>
+  <div class="shell"><pre>claude mcp add -s user brightspace -- uv run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
+  <p>Check it with <code>claude mcp list</code>. Inside Claude Code, <code>/mcp</code> shows the tools. Typing <code>/mcp__brightspace__week_ahead</code> runs the built-in weekly-plan prompt.</p>
+</div>
+
+<h2 id="gemini">Gemini CLI</h2>
+<div class="cmd">
+  <p>Add this to <code>~/.gemini/settings.json</code> and merge it with anything already in <code>mcpServers</code>:</p>
+  <div class="shell"><pre>{
+  "mcpServers": {
+    "brightspace": {
+      "command": "uv",
+      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+    }
+  }
+}</pre><button onclick="copy(this)">copy</button></div>
+  <p>Or run <code>gemini mcp add -s user brightspace uv -- run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</code>. Check with <code>/mcp</code> inside Gemini.</p>
+</div>
+
+<h2 id="vscode">VS Code (GitHub Copilot agent mode)</h2>
+<div class="cmd">
+  <p>Command palette → <b>MCP: Open User Configuration</b>, then add:</p>
+  <div class="shell"><pre>{
+  "servers": {
+    "brightspace": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+    }
+  }
+}</pre><button onclick="copy(this)">copy</button></div>
+  <p>In Copilot Chat, switch to <b>Agent</b> mode. The Brightspace tools appear in the tools picker.</p>
+</div>
+
+<h2 id="codex">OpenAI Codex CLI</h2>
+<div class="cmd">
+  <div class="shell"><pre>codex mcp add brightspace -- uv run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
+  <p>Or add it to <code>~/.codex/config.toml</code> by hand:</p>
+  <div class="shell"><pre>[mcp_servers.brightspace]
+command = "uv"
+args = ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<h2 id="desktop">Claude Desktop, Cursor, Windsurf, LM Studio and others</h2>
+<div class="cmd">
+  <p>Most desktop apps use the same <code>mcpServers</code> JSON: Claude Desktop's <code>claude_desktop_config.json</code>,
+  Cursor's <code>~/.cursor/mcp.json</code>, LM Studio's <code>mcp.json</code>.</p>
+  <div class="shell"><pre>{
+  "mcpServers": {
+    "brightspace": {
+      "command": "uv",
+      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+    }
+  }
+}</pre><button onclick="copy(this)">copy</button></div>
+  <p>If an app can't find <code>uv</code>, use the full path <code>/home/tasir/.local/bin/uv</code>.</p>
+</div>
+
+<h2 id="http">HTTP clients (anything that takes an MCP URL)</h2>
+<div class="cmd">
+  <div class="shell"><pre>uv run d2l serve                   <span class="c"># or: uv run d2l schedule install --serve  (always on)</span></pre><button onclick="copy(this)">copy</button></div>
+  <table><tr><th>Setting</th><th>Value</th></tr>
+    <tr><td>URL</td><td><code>http://127.0.0.1:8765/mcp</code> (streamable HTTP)</td></tr>
+    <tr><td>Header</td><td><code>Authorization: Bearer &lt;D2L_API_TOKEN&gt;</code>. The token is generated into <code>.env</code> on the first <code>serve</code></td></tr>
+    <tr><td>No header support?</td><td>Use <code>…/mcp?token=&lt;token&gt;</code> instead</td></tr></table>
+  <p>For example, Claude Code over HTTP: <code>claude mcp add --transport http brightspace http://127.0.0.1:8765/mcp --header "Authorization: Bearer $TOKEN"</code></p>
+</div>
+
+<h2 id="web">ChatGPT, claude.ai and other web AIs</h2>
+<div class="cmd">
+  <p>Web AIs run in the cloud and can't reach <code>127.0.0.1</code>, so they need a public HTTPS link that forwards
+  to your laptop. The easiest way is the app: open <b>Brightspace</b> from your launcher (or
+  <a href="http://127.0.0.1:8766/#connect">http://127.0.0.1:8766</a>) → <b>Connect AI</b> → <b>Turn on public link</b> →
+  <b>Copy</b>. The link stays on across restarts, but its address changes when it restarts.</p>
+  <ol class="flow">
+    <li><b>claude.ai</b>: Settings → Connectors → <i>Add custom connector</i>. Name it <code>Brightspace</code>, paste the URL,
+        leave OAuth empty, then enable it in a chat from the tools menu.</li>
+    <li><b>ChatGPT</b>: Settings → Apps &amp; Connectors → Advanced → Developer mode on → <i>Create</i>. Paste the URL and choose
+        authentication <i>None</i>.</li>
+    <li>The current link is also saved in <code>data/connector-url.txt</code>.</li>
+  </ol>
+  <p class="note">The secret in the URL is the only lock. Anyone who has it can read your courses and grades, so don't
+  share it. It only works while your laptop is on, and it gets a new address every time it restarts, so you'd copy it again
+  from the Connect AI tab. For a permanent address, use a named Cloudflare tunnel on
+  your own domain, or Tailscale Funnel. To rotate the secret, delete <code>D2L_API_TOKEN</code> from <code>.env</code>.</p>
+</div>
+
+<h2 id="n8n">n8n, custom apps and WhatsApp</h2>
+<div class="cmd">
+  <p><b>Pull</b> (n8n reads from you): an <b>HTTP Request</b> node calls
+  <code>GET http://127.0.0.1:8765/api/deadlines?days=7</code> with Header Auth <code>Authorization: Bearer &lt;token&gt;</code>.
+  If n8n runs in Docker, use <code>host.docker.internal</code> and start the server with <code>serve --host 0.0.0.0</code>.</p>
+  <p><b>Push</b> (every sync sends changes to n8n): create a <b>Webhook</b> trigger in n8n and put its URL in <code>.env</code>:</p>
+  <div class="shell"><pre>D2L_WEBHOOK_URL=http://localhost:5678/webhook/brightspace</pre><button onclick="copy(this)">copy</button></div>
+  <p>Each sync POSTs a JSON batch like this:</p>
+  <div class="shell"><pre>{"source": "d2l", "events": [
+  {"kind": "new_announcement", "course": "CHEM1010 General Chemistry I", "summary": "Quiz 1 reminder",
+   "detail": "A gentle reminder that…", "url": "https://d2l.udst.edu.qa/…", "ts": "2026-09-18T11:56:50+00:00"}
+]}</pre><button onclick="copy(this)">copy</button></div>
+  <p>From there, n8n can forward to <b>WhatsApp</b> (WhatsApp Business Cloud node or Twilio), email, Notion, Google
+  Calendar, or an AI agent node that has the Brightspace MCP as a tool. Event kinds: <code>new_announcement</code>,
+  <code>new_grade</code>, <code>grade_changed</code>, <code>new_assignment</code>, <code>due_changed</code>, <code>new_quiz</code>,
+  <code>new_files</code>, <code>due_soon</code>, <code>session_expired</code>.</p>
+  <p>Telegram and Discord are built in, so they don't need n8n. See <code>.env.example</code>.</p>
+</div>
+
+<h2 id="tools">What the AI can do</h2>
+<div class="cmd"><table>
+  <tr><th>Tool</th><th>Use</th></tr>
+  <tr><td><code>whats_new</code></td><td>Changes found by recent syncs</td></tr>
+  <tr><td><code>get_deadlines</code></td><td>Open assignments, quizzes closing and calendar events in the next N days</td></tr>
+  <tr><td><code>get_announcements</code> / <code>read_announcement</code></td><td>List announcements, or read one in full</td></tr>
+  <tr><td><code>get_grades</code></td><td>Grade items by category with weights, your grades and instructor comments</td></tr>
+  <tr><td><code>get_assignments</code></td><td>Folders, instructions, due dates, submission status and score</td></tr>
+  <tr><td><code>search</code></td><td>Full-text search across everything, including lecture-note text</td></tr>
+  <tr><td><code>list_files</code> / <code>read_document</code></td><td>The content tree, and the text of a PDF, DOCX, PPTX or HTML lesson (paged)</td></tr>
+  <tr><td><code>course_brief</code></td><td>A whole course as one markdown document</td></tr>
+  <tr><td><code>list_courses</code> / <code>sync_status</code></td><td>What's there and how fresh it is</td></tr>
+</table>
+<p>Prompts to try: <i>"What's due this week and what did CHEM1010 announce?"</i> · <i>"Explain the chain rule using my
+MATH1030 Unit 1 notes"</i> · <i>"Make me a revision plan for Test 1"</i> · <i>"Quiz me on the density lab instructions"</i></p>
+</div>
+
+<h2 id="rest">REST reference</h2>
+<div class="cmd"><table>
+  <tr><th>GET</th><th>Returns</th></tr>
+  <tr><td><code>/api/courses</code></td><td>Courses with counts</td></tr>
+  <tr><td><code>/api/deadlines?days=14&amp;course=</code></td><td>Upcoming dated items</td></tr>
+  <tr><td><code>/api/announcements?course=&amp;since_days=&amp;limit=&amp;full=1</code></td><td>Announcements, newest first</td></tr>
+  <tr><td><code>/api/announcements/{id}</code></td><td>One announcement in full</td></tr>
+  <tr><td><code>/api/grades?course=</code></td><td>Grade items</td></tr>
+  <tr><td><code>/api/assignments?course=&amp;open=1</code></td><td>Assignments (<code>open=1</code>: unsubmitted only)</td></tr>
+  <tr><td><code>/api/search?q=&amp;course=</code></td><td>Full-text search</td></tr>
+  <tr><td><code>/api/files?course=</code></td><td>Content tree</td></tr>
+  <tr><td><code>/api/documents/{id}?offset=&amp;length=</code></td><td>Text of one file</td></tr>
+  <tr><td><code>/api/events?since_days=7</code></td><td>Change feed</td></tr>
+  <tr><td><code>/api/courses/{id}/brief</code></td><td>Markdown course brief</td></tr>
+  <tr><td><code>/api/status</code> · <code>/health</code></td><td>Sync status · liveness (no token)</td></tr>
+</table>
+<p><code>course</code> accepts a code (<code>MATH1030</code>), part of a name (<code>chem</code>) or an id.</p></div>
+
+<footer>d2l-brightspace · <code>docs/connect-ai.html</code> · commands: <code>docs/commands.html</code></footer>
+</div>
+<script>
+function copy(btn) {
+  const text = btn.previousElementSibling.innerText.split("\n")
+    .map(l => l.replace(/\s+#.*$/, "")).filter(l => l.trim() && !l.trim().startsWith("#")).join("\n");
+  navigator.clipboard.writeText(text).then(() => { btn.textContent = "copied"; setTimeout(() => btn.textContent = "copy", 1200); },
+                                           () => { btn.textContent = "select it"; });
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme")
+    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+}
+</script>
+</body></html>

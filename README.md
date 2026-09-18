@@ -1,27 +1,28 @@
 # d2l-brightspace
 
-Pulls **your own** Brightspace (D2L) content into local JSON so other tools can use it: courses, assignments with
-due dates and submission status, announcements, grades, and deadlines.
+Your own Brightspace (D2L) account as a small local hub. It includes:
+- A **synced database** of this term's courses: announcements in full, grades by category, assignments, quizzes, calendar, and the course content tree.
+- **Downloaded lecture files with their text extracted.**
+- **Notifications** when something changes.
+- A **dashboard**.
+- An **MCP server + REST API**, so any AI (Claude, Gemini, Copilot, Codex, ChatGPT…) or n8n workflow can use it as a knowledge base.
 
-Read-only by design. It fetches what your account already sees in the browser; it does not submit anything.
+Read-only by design. It reads what your account already sees; it never submits anything.
 
 ## How it connects
 
-Brightspace has an official API (Valence) but it needs keys from your institution's admins, which students don't
-get. So this uses the two routes that need nothing but your own login:
+Brightspace's official API (Valence) normally needs app keys from the institution. It also accepts the web session of
+a logged-in user, meaning the cookies plus the `X-Csrf-Token` the web app keeps in localStorage. So:
 
-| Route | Used for | Breaks when |
-|---|---|---|
-| **iCal feed** (`d2l due`) | deadlines | almost never — it's a published feature |
-| **Logged-in browser** (`d2l dump`) | courses, assignments, announcements, grades | Brightspace changes its UI or internal endpoints |
+1. `d2l login` opens a real browser window. You sign in normally (SSO + MFA) and the session is saved.
+   The scripts never see your password.
+2. `d2l sync` restores that session in a headless browser and calls the same JSON API the Brightspace web app uses.
+   Calls go one at a time, about a second apart.
+3. Everything lands in `data/d2l.db` (SQLite with full-text search). The CLI, dashboard, MCP server and REST API all
+   read from there and never from Brightspace, so an AI can query as much as it likes without touching the
+   university server.
 
-You sign in **once**, by hand, in a real browser window — normal SSO and MFA. Playwright keeps that browser
-profile in `user-data-dir/`, so later runs reuse the session. The scripts never see your password. When the
-session eventually expires, run `d2l login` again.
-
-Inside `fetch.py` each item tries Brightspace's own JSON endpoint first (`/d2l/api/hm/...`, `/d2l/le/...` — the
-same calls the web UI makes, with the CSRF token it keeps in localStorage) and falls back to reading the rendered
-page if that returns nothing.
+Confirmed endpoints, dead ends and gotchas are in `NOTES.md`.
 
 ## Setup
 
@@ -30,35 +31,88 @@ cp .env.example .env          # set D2L_BASE_URL, e.g. https://your-school.brigh
 uv sync
 uv run playwright install chromium
 uv run d2l login              # sign in in the window that opens
+uv run d2l sync               # first run records a baseline and downloads course files
+uv run d2l schedule install   # then keep it fresh: 08:00, 14:00, 20:00 (systemd user timer)
 ```
 
 ## Use
 
 ```bash
-uv run d2l courses                  # list enrolled courses
-uv run d2l dump                     # everything -> data/*.json
-uv run d2l dump --show-browser      # same, but watch it work
-uv run d2l show assignments --open  # only what is still unsubmitted
-uv run d2l due --days 14            # deadlines from the iCal feed (no login needed)
+uv run d2l due                      # what's coming up
+uv run d2l new                      # what changed recently
+uv run d2l search chain rule        # full-text, including lecture-note text
+uv run d2l read 4026138             # a course file's text
+uv run d2l ui                       # dashboard.html
+uv run d2l notify --test            # check notification channels
 ```
 
-Output lands in `data/` as `courses.json`, `assignments.json`, `announcements.json`, `grades.json` — plain JSON for
-whatever you build next.
+Full reference: [`docs/commands.html`](docs/commands.html). AI and n8n setup: [`docs/connect-ai.html`](docs/connect-ai.html).
+
+### Connect an AI
+
+The easy way: open **Brightspace** from the app launcher (the `d2l app` service at http://127.0.0.1:8766) →
+**Connect AI**. It turns the public link for claude.ai / ChatGPT on or off and copies it, adds the connector to local
+AI apps with one click, and can sync or log in again. The commands below do the same by hand.
+
+```bash
+claude mcp add -s user brightspace -- uv run --directory "$PWD" d2l mcp     # Claude Code
+uv run d2l serve                                                           # HTTP MCP + REST on 127.0.0.1:8765
+```
+
+Tools the AI gets:
+- `whats_new`, `get_deadlines`
+- `get_announcements` / `read_announcement`, `get_grades`, `get_assignments`
+- `search`, `list_files` / `read_document`, `course_brief`
+- `list_courses`, `sync_status`
+
+### Notifications
+
+Each sync compares what it fetched with what was stored and sends an event for each of these:
+- a new announcement, grade, assignment, quiz or file
+- a changed due date
+- something due within 48 h that's still open
+- an expired session
+
+Desktop notifications are on by default. Telegram, Discord and a generic JSON webhook (n8n → WhatsApp, email,
+anything) are configured in `.env`.
+
+## Scope
+
+Only **this term's** course offerings are synced: a course counts if its code looks like `MATH_1030_2566_1268` and
+its start/end dates include today. Service pages (Student Central Services, Self-Help, Student Employment) and past
+terms are skipped. `sync --scope academic|all` brings them back, and `d2l courses --all` shows what was filtered and why.
 
 ## Before you rely on it
 
 - Check your university's acceptable-use policy. The technical side is easy; an account flagged for unusual
-  automated access is the real cost.
-- Keep it gentle: this fetches serially, per course, on demand. Don't put it on a fast timer.
-- `data/`, `session/`, `user-data-dir/` and `.env` are gitignored — they contain your cookies and coursework.
-- Endpoints move. If `dump` suddenly returns empty lists, open DevTools → Network on the page in question, see
-  what the UI calls now, and update `fetch.py`. Note findings in `NOTES.md`.
+  automated access is the real cost. Three syncs a day is gentle; don't put it on a fast timer.
+- `data/`, `session/`, `user-data-dir/` and `.env` are gitignored. They contain your cookies, grades and coursework.
+- `d2l serve` binds to localhost and requires a token. Exposing it through a tunnel for web AIs is opt-in and makes
+  your data reachable from the internet; see `docs/connect-ai.html`.
+- Endpoints can move. If a sync suddenly returns empty lists, check `NOTES.md`, look at DevTools → Network on the
+  page in question, and update `src/d2l/api.py`.
+
+## Layout
+
+```
+src/d2l/
+  session.py   login once, restore the saved session
+  api.py       Valence calls over the session, paced
+  fetch.py     shape API responses into rows (courses, announcements, grades, assignments, quizzes, calendar, content)
+  sync.py      fetch → store → detect changes → download + extract files → notify → JSON exports
+  store.py     SQLite schema, upserts that report changes, events, FTS index
+  extract.py   text from PDF / DOCX / PPTX / HTML (incl. zipped HTML lessons)
+  query.py     every read: deadlines, search, grades, briefs… (shared by CLI, dashboard, MCP, REST)
+  server.py    MCP (stdio + streamable HTTP) and REST, token-gated
+  app.py       `d2l app`: live dashboard :8766 with the Connect AI tab; runs MCP/REST :8765 and the public tunnel
+  notify.py    desktop, Telegram, Discord, webhook
+  schedule.py  systemd user timer / service
+  ui.py        dashboard.html
+  cli.py       `d2l …`
+```
 
 ## Status
 
-Working against `d2l.udst.edu.qa` as of 18 Sep 2026: first run pulled 18 courses, 130 announcements, 8 assignment
-folders (with due dates, scores and submission status) and 161 grade items. Confirmed endpoints, dead ends and
-gotchas are in `NOTES.md`.
-
-`d2l due` uses the iCal feed when `D2L_ICAL_URL` is set, and otherwise falls back to unsubmitted assignments with
-due dates from the last `dump`.
+Working against `d2l.udst.edu.qa` as of 18 Sep 2026. Fall 2026: 5 course pages, 22 announcements, 9 grade items,
+7 quizzes, 250 content items, 66 files with text. The 31 "missing" files are broken on Brightspace itself (MATH1030
+Lecture-Theatre section); the same material downloads fine from section 20.

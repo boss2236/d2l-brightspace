@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>d2l commands</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #f7f7f5; --card: #ffffff; --line: #e6e5e0; --soft: #f1f0ec;
+  --text: #111110; --muted: #62615d; --accent: #2a6fd6; --accent-soft: #e8f0fc; --warn: #9a6700;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --surface: #161615; --card: #1f1f1e; --line: #333331; --soft: #2a2a28;
+  --text: #f3f3f1; --muted: #a9a8a1; --accent: #5b9cf0; --accent-soft: #1d2b40; --warn: #d4a72c;
+} }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: #161615; --card: #1f1f1e; --line: #333331; --soft: #2a2a28;
+  --text: #f3f3f1; --muted: #a9a8a1; --accent: #5b9cf0; --accent-soft: #1d2b40; --warn: #d4a72c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+h1 { font-size: 26px; margin: 0; letter-spacing: -0.015em; }
+h2 { font-size: 18px; margin: 36px 0 12px; letter-spacing: -0.01em; }
+p.lead { color: var(--muted); margin: 0 0 8px; max-width: 64ch; }
+button.theme { margin-left: auto; background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 8px; padding: 5px 11px; cursor: pointer; font-size: 13px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 0; }
+nav.toc a { font-size: 13px; padding: 3px 9px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); color: var(--text); text-decoration: none; }
+nav.toc a:hover { border-color: var(--accent); }
+code, pre { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace; }
+p code, li code, td code { font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.cmd p, .cmd td, ol.flow li { overflow-wrap: anywhere; }
+.cmd { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; scroll-margin-top: 16px; }
+.cmd h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cmd h3 .name { font-family: ui-monospace, Menlo, monospace; color: var(--accent); }
+.cmd p { margin: 4px 0 10px; color: var(--muted); }
+.tag { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.tag.net { background: var(--soft); color: var(--warn); }
+.shell { position: relative; background: var(--soft); border-radius: 8px; margin: 8px 0; }
+.shell pre { margin: 0; padding: 10px 44px 10px 12px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
+.shell pre .c { color: var(--muted); }
+.shell button { position: absolute; top: 6px; right: 6px; background: var(--card); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 6px; font-size: 12px; padding: 2px 8px; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+th, td { text-align: start; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+td:first-child { white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+ol.flow { padding-left: 20px; } ol.flow li { margin-bottom: 6px; }
+.note { border-left: 3px solid var(--warn); background: var(--card); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
+footer { color: var(--muted); font-size: 12.5px; margin-top: 40px; }
+@media (max-width: 640px) { h1 { font-size: 22px; } td:first-child { white-space: normal; } }
+</style></head><body><div class="wrap">
+<header>
+  <h1>d2l commands</h1>
+  <button class="theme" onclick="toggleTheme()" aria-label="Toggle light/dark">◐ theme</button>
+</header>
+<p class="lead">Every command in the Brightspace reader, what it does, and when to use it. Run them from the
+<code>d2l-brightspace/</code> folder. Only reads your data. Nothing ever gets submitted.
+To connect an AI or n8n, see <a href="connect-ai.html">Connect your AI</a>.</p>
+<nav class="toc">
+  <a href="#daily">Daily use</a><a href="#sync">sync</a><a href="#due">due</a><a href="#new">new</a><a href="#search">search</a>
+  <a href="#show">show / read</a><a href="#ui">ui</a><a href="#app">app</a><a href="#ai">mcp / serve</a><a href="#notify">notify</a>
+  <a href="#schedule">schedule</a><a href="#login">login / courses</a><a href="#setup">Setup</a><a href="#config">Settings</a>
+  <a href="#files">Files</a><a href="#trouble">Troubleshooting</a>
+</nav>
+
+<h2 id="daily">Daily use</h2>
+<div class="shell"><pre><span class="c"># once: keep it fresh automatically (08:00, 14:00, 20:00)</span>
+uv run d2l schedule install
+
+<span class="c"># any time</span>
+uv run d2l due          <span class="c"># what's coming up</span>
+uv run d2l new          <span class="c"># what changed</span>
+uv run d2l ui           <span class="c"># the dashboard</span></pre><button onclick="copy(this)">copy</button></div>
+<ol class="flow">
+  <li>The timer runs <code>sync</code> three times a day. Each run pulls this term from Brightspace, downloads new course
+      files and sends a notification for anything new.</li>
+  <li>Everything else (<code>due</code>, <code>new</code>, <code>search</code>, the dashboard, AI tools) reads the local
+      database, so it's instant and works offline.</li>
+  <li>When the session expires you get a notification. Run <code>uv run d2l login</code> once to fix it.</li>
+</ol>
+
+<h2>Commands</h2>
+
+<div class="cmd" id="sync">
+  <h3><span class="name">sync</span><span class="tag net">talks to Brightspace</span></h3>
+  <p>Pulls this term's courses through Brightspace's own API: announcements (full text), grades by category,
+     assignments with submission status, quizzes, calendar and the content tree. It downloads new or changed course
+     files (PDF, DOCX, PPTX, HTML; videos are skipped) and extracts their text. Changes are recorded and sent as
+     notifications. Requests go one at a time, about a second apart. The first run only records a baseline, so you
+     aren't flooded with "new" alerts. <code>dump</code> is an older name for the same command.</p>
+  <div class="shell"><pre>uv run d2l sync
+uv run d2l sync --show-browser     <span class="c"># watch it work</span>
+uv run d2l sync --no-files --quiet <span class="c"># quick refresh, no downloads, no alerts</span></pre><button onclick="copy(this)">copy</button></div>
+  <table><tr><th>Flag</th><th>Effect</th></tr>
+    <tr><td><code>--scope current</code></td><td>This term's courses only (default)</td></tr>
+    <tr><td><code>--scope academic</code></td><td>Every course offering, all terms</td></tr>
+    <tr><td><code>--scope all</code></td><td>Also Student Services, Self-Help and Employment pages</td></tr>
+    <tr><td><code>--no-files</code></td><td>Skip downloading course files</td></tr>
+    <tr><td><code>--quiet</code></td><td>Record changes but don't notify</td></tr>
+    <tr><td><code>--show-browser</code></td><td>Visible window instead of headless</td></tr></table>
+</div>
+
+<div class="cmd" id="due">
+  <h3><span class="name">due</span><span class="tag">offline</span></h3>
+  <p>Lists everything dated ahead: unsubmitted assignments, quizzes closing and calendar events, in your local time.</p>
+  <div class="shell"><pre>uv run d2l due
+uv run d2l due --days 30 --course chem</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="new">
+  <h3><span class="name">new</span><span class="tag">offline</span></h3>
+  <p>The change feed: new announcements, grades, assignments, quizzes, files and due-soon reminders.</p>
+  <div class="shell"><pre>uv run d2l new
+uv run d2l new --days 30</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="search">
+  <h3><span class="name">search</span><span class="tag">offline</span></h3>
+  <p>Full-text search across announcements, assignments, grade items, content titles and <b>the text inside
+     lecture notes and handouts</b>. Each result shows the id to pass to <code>read</code>.</p>
+  <div class="shell"><pre>uv run d2l search chain rule
+uv run d2l search density --course chem1011</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="show">
+  <h3><span class="name">show</span> · <span class="name">read</span><span class="tag">offline</span></h3>
+  <p><code>show</code> prints stored data as a table, or as JSON with <code>--json</code>. <code>read</code> prints a
+     course file's extracted text.</p>
+  <div class="shell"><pre>uv run d2l show courses
+uv run d2l show grades --course math1030
+uv run d2l show assignments --open
+uv run d2l show files --course chem1010
+uv run d2l read 4026138          <span class="c"># id from `show files` or `search`</span></pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="ui">
+  <h3><span class="name">ui</span><span class="tag">offline</span></h3>
+  <p>Builds <code>dashboard.html</code>, a single offline file. It has upcoming deadlines, a card per course, and
+     tabs for what's new, announcements (click to read in full), grades by category, assignments and course files.</p>
+  <div class="shell"><pre>uv run d2l ui
+uv run d2l ui --no-open</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="app">
+  <h3><span class="name">app</span><span class="tag">this computer only</span></h3>
+  <p>The dashboard as a live app at <a href="http://127.0.0.1:8766">http://127.0.0.1:8766</a>. Its <b>Connect AI</b> tab
+     turns the public link for claude.ai and ChatGPT on or off and copies it, adds the connector to AI apps on this
+     computer, and has <b>Sync now</b> and <b>Log in again</b> buttons. <code>schedule install --serve</code> keeps it
+     running and adds a <i>Brightspace</i> entry to your app launcher.</p>
+  <div class="shell"><pre>uv run d2l app --open
+uv run d2l schedule install --serve   <span class="c"># always on + launcher entry</span></pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="ai">
+  <h3><span class="name">mcp</span> · <span class="name">serve</span><span class="tag">offline</span></h3>
+  <p><code>mcp</code> is the MCP server over stdio; AI apps start it themselves. <code>serve</code> runs MCP over HTTP
+     plus a REST API on <code>127.0.0.1:8765</code>, behind a token, for n8n, custom apps and web AIs. Setup for every
+     client is in <a href="connect-ai.html">Connect your AI</a>.</p>
+  <div class="shell"><pre>claude mcp add -s user brightspace -- uv run --directory "$PWD" d2l mcp
+uv run d2l serve                  <span class="c"># http://127.0.0.1:8765/mcp and /api/*</span></pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="notify">
+  <h3><span class="name">notify</span></h3>
+  <p><code>sync</code> sends notifications by itself. This command checks your channel setup or re-sends anything still pending.</p>
+  <div class="shell"><pre>uv run d2l notify --test         <span class="c"># a test message to every configured channel</span>
+uv run d2l notify                <span class="c"># send anything still pending</span></pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="schedule">
+  <h3><span class="name">schedule</span><span class="tag net">systemd user timer</span></h3>
+  <p>Runs <code>sync</code> automatically as a systemd <i>user</i> timer, so it needs no root. It uses up to 10 minutes
+     of random delay, and catches up after the laptop was asleep.</p>
+  <div class="shell"><pre>uv run d2l schedule install                       <span class="c"># 08:00, 14:00, 20:00</span>
+uv run d2l schedule install --times 07:30,19:00   <span class="c"># your own times</span>
+uv run d2l schedule install --serve               <span class="c"># also keep the app (dashboard, MCP, REST) running</span>
+uv run d2l schedule status
+uv run d2l schedule remove</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="login">
+  <h3><span class="name">login</span> · <span class="name">courses</span> · <span class="name">reindex</span></h3>
+  <p><code>login</code> opens a browser for the normal UDST sign-in (SSO and MFA) and saves the session. The script
+     never sees your password. <code>courses --all</code> lists every enrolment live and labels why hidden ones were
+     skipped. <code>reindex</code> re-extracts text from files already downloaded, without contacting Brightspace.</p>
+  <div class="shell"><pre>uv run d2l login
+uv run d2l courses --all
+uv run d2l reindex</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<h2 id="setup">First-time setup</h2>
+<div class="shell"><pre>cp .env.example .env              <span class="c"># then set D2L_BASE_URL</span>
+uv sync
+uv run playwright install chromium
+uv run d2l login
+uv run d2l sync</pre><button onclick="copy(this)">copy</button></div>
+
+<h2 id="config">Settings (<code>.env</code>)</h2>
+<div class="cmd"><table>
+  <tr><th>Variable</th><th>Meaning</th></tr>
+  <tr><td><code>D2L_BASE_URL</code></td><td>Your Brightspace host, e.g. <code>https://d2l.udst.edu.qa</code> (required)</td></tr>
+  <tr><td><code>D2L_TZ</code></td><td>Time zone for dates (default <code>Asia/Qatar</code>)</td></tr>
+  <tr><td><code>D2L_NOTIFY_DESKTOP</code></td><td><code>0</code> turns off desktop notifications</td></tr>
+  <tr><td><code>D2L_TELEGRAM_TOKEN</code>, <code>D2L_TELEGRAM_CHAT</code></td><td>Telegram bot token and your chat id</td></tr>
+  <tr><td><code>D2L_DISCORD_WEBHOOK</code></td><td>Discord channel webhook URL</td></tr>
+  <tr><td><code>D2L_WEBHOOK_URL</code></td><td>Where each sync POSTs its change batch (n8n, custom apps, WhatsApp bridges)</td></tr>
+  <tr><td><code>D2L_API_TOKEN</code></td><td>Bearer token for <code>serve</code>. Generated on the first run</td></tr>
+  <tr><td><code>D2L_PUBLIC_HOSTS</code></td><td>Extra hostnames <code>serve</code> accepts, e.g. a tunnel's</td></tr>
+</table></div>
+
+<h2 id="files">What ends up where</h2>
+<div class="cmd"><table>
+  <tr><th>Path</th><th>Contents</th></tr>
+  <tr><td><code>data/d2l.db</code></td><td>The SQLite database everything reads: courses, announcements, grades, assignments, quizzes, calendar, content, file text, change events, search index</td></tr>
+  <tr><td><code>data/files/&lt;course&gt;/</code></td><td>Downloaded course files</td></tr>
+  <tr><td><code>data/*.json</code></td><td>Flat exports written by each sync (courses, announcements, assignments, grades, deadlines, files)</td></tr>
+  <tr><td><code>dashboard.html</code></td><td>Output of <code>ui</code></td></tr>
+  <tr><td><code>session/</code>, <code>user-data-dir/</code></td><td>Your login cookies and browser profile. Never share or commit these</td></tr>
+</table></div>
+
+<h2 id="trouble">Troubleshooting</h2>
+<div class="cmd"><table>
+  <tr><th>You see</th><th>Do this</th></tr>
+  <tr><td>"Session expired" (terminal or notification)</td><td><code>uv run d2l login</code></td></tr>
+  <tr><td>"another sync is already running"</td><td>Wait for it; the timer may be running one</td></tr>
+  <tr><td>A course is missing</td><td>Run <code>d2l courses --all</code>. If its term dates don't include today, it's filtered out. Use <code>sync --scope academic</code></td></tr>
+  <tr><td>A file shows "missing on Brightspace"</td><td>The file is broken on Brightspace itself; the browser gets a 404 too. It often exists in another section</td></tr>
+  <tr><td>A PDF's text says "mostly images"</td><td>It's a scan or handwriting, so open the file itself</td></tr>
+  <tr><td>Timer runs but nothing happens</td><td><code>journalctl --user -u d2l-sync -n 50</code></td></tr>
+  <tr><td>Something returns empty after a Brightspace update</td><td>An endpoint moved. Check <code>NOTES.md</code>, then DevTools → Network, then update <code>src/d2l/api.py</code></td></tr>
+</table></div>
+
+<p class="note">Keep it gentle: three syncs a day is plenty. Heavy automated access is what gets accounts flagged.</p>
+
+<footer>d2l-brightspace · <code>docs/commands.html</code> · built-in help: <code>uv run d2l &lt;command&gt; --help</code></footer>
+</div>
+<script>
+function copy(btn) {
+  const text = btn.previousElementSibling.innerText.split("\n")
+    .map(l => l.replace(/\s+#.*$/, "")).filter(l => l.trim() && !l.trim().startsWith("#")).join("\n");
+  navigator.clipboard.writeText(text).then(() => { btn.textContent = "copied"; setTimeout(() => btn.textContent = "copy", 1200); },
+                                           () => { btn.textContent = "select it"; });
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme")
+    || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+}
+</script>
+</body></html>
