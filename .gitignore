@@ -1,0 +1,7 @@
+.env
+user-data-dir/
+session/
+data/
+.venv/
+__pycache__/
+*.pyc
