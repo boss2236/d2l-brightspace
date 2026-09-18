@@ -2,12 +2,13 @@
 
 Endpoints confirmed against UDST's instance (d2l.udst.edu.qa), Sept 2026 — see NOTES.md:
 
-* courses        GET /d2l/le/manageCourses/api/mycourses       (the list the home page's course picker uses)
-* everything else     /d2l/api/le/1.99/{ou}/...                (Valence, via api.Api with the browser session)
+* courses        GET /d2l/api/lp/<v>/enrollments/myenrollments/   (Valence; <v> is whatever the server supports)
+* everything else     /d2l/api/le/<v>/{ou}/...                     (Valence, via api.Api with the browser session)
 
 Read-only: nothing here writes to Brightspace. `sync.py` stores the rows; this module only fetches and shapes them.
 """
 import json
+import os
 import re
 from datetime import datetime, timezone
 
@@ -15,11 +16,11 @@ from .api import Api
 from .session import ROOT, base_url
 
 OUT = ROOT / "data"
-COURSES_API = "/d2l/le/manageCourses/api/mycourses?pageSize=100&sort=current&autoPinCourses=false&orgUnitTypeId=3&promotePins="
-# Real course offerings have codes like MATH_1030_2566_1268; service shells ("StudentCentralServices",
-# "SELFHELP_2026Y1") don't.
-ACADEMIC_CODE = re.compile(r"^[A-Z]{3,5}_\d{4}_\d+_\d+$")
 SUBMISSION_STATUS = {0: "Not submitted", 1: "Submitted", 2: "Draft", 3: "Feedback published"}
+
+
+def _ids(var: str) -> set[int]:
+    return {int(x) for x in re.findall(r"\d+", os.environ.get(var, ""))}
 
 
 def _iso(s: str) -> datetime:
@@ -27,24 +28,40 @@ def _iso(s: str) -> datetime:
 
 
 def courses(api: Api) -> list[dict]:
-    """Every enrolment, tagged `academic` (a real course offering) and `current` (its term includes today)."""
-    j = api.get(COURSES_API)
-    if j is None:
-        raise SystemExit("courses endpoint refused — session expired? run `d2l login`")
+    """Every enrolment, tagged `academic` (a real course offering) and `current` (its term includes today).
+
+    Portable rule: a real course has both a start and an end date; service pages (student services, self-help,
+    orientation shells) usually don't. Instances that date those too can narrow it in .env:
+      D2L_COURSE_CODE_REGEX   only codes matching this count as courses (UDST: ^[A-Z]{3,5}_\\d{4}_)
+      D2L_COURSES_INCLUDE     org unit ids to always treat as current courses
+      D2L_COURSES_EXCLUDE     org unit ids to always hide
+    """
+    items = api.enrollments()
+    if not items:
+        raise SystemExit("Brightspace returned no enrolments — session expired? run `d2l login`")
+    pattern = os.environ.get("D2L_COURSE_CODE_REGEX", "").strip()
+    include, exclude = _ids("D2L_COURSES_INCLUDE"), _ids("D2L_COURSES_EXCLUDE")
     now, out = datetime.now(timezone.utc), []
-    for c in j.get("Courses", []):
-        name, code = c.get("Name") or "", c.get("Code") or ""
-        start, end = c.get("StartDate"), c.get("EndDate")
+    for e in items:
+        o, acc = e.get("OrgUnit") or {}, e.get("Access") or {}
+        if not acc.get("CanAccess", True):
+            continue
+        ou, name, code = int(o["Id"]), o.get("Name") or "", o.get("Code") or ""
+        start, end = acc.get("StartDate"), acc.get("EndDate")
         section = re.search(r"-(\d+)(?=\s*(\(|$))", name)
-        academic = bool(ACADEMIC_CODE.match(code))
-        out.append({"id": int(c["OrgUnitId"]), "name": name, "code": code,
+        academic = bool(start and end) and (not pattern or bool(re.search(pattern, code)))
+        current = academic and _iso(start) <= now <= _iso(end)
+        if ou in include:
+            academic = current = True
+        if ou in exclude:
+            academic = current = False
+        out.append({"id": ou, "name": name, "code": code,
                     # "MATH1030 Calculus I-19 (Lecture-Theatre)" -> "MATH1030 Calculus I (Lecture-Theatre)"
                     "short": re.sub(r"-\d+(?=\s*(\(|$))", "", name).strip(),
                     "section": section.group(1) if section else None,
-                    "academic": academic,
-                    "current": academic and bool(start and end) and _iso(start) <= now <= _iso(end),
+                    "academic": academic, "current": current,
                     "start": start, "end": end,
-                    "url": f"{base_url()}/d2l/home/{c['OrgUnitId']}"})
+                    "url": f"{base_url()}/d2l/home/{ou}"})
     return out
 
 

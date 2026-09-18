@@ -176,8 +176,8 @@ uv run d2l notify                <span class="c"># send anything still pending</
 
 <div class="cmd" id="schedule">
   <h3><span class="name">schedule</span><span class="tag net">systemd user timer</span></h3>
-  <p>Runs <code>sync</code> automatically as a systemd <i>user</i> timer, so it needs no root. It uses up to 10 minutes
-     of random delay, and catches up after the laptop was asleep.</p>
+  <p>Runs <code>sync</code> automatically using what your OS provides: a systemd <i>user</i> timer on Linux (no root,
+     up to 10 minutes of random delay, catches up after sleep), launchd on macOS, or Task Scheduler on Windows.</p>
   <div class="shell"><pre>uv run d2l schedule install                       <span class="c"># 08:00, 14:00, 20:00</span>
 uv run d2l schedule install --times 07:30,19:00   <span class="c"># your own times</span>
 uv run d2l schedule install --serve               <span class="c"># also keep the app (dashboard, MCP, REST) running</span>
@@ -192,6 +192,7 @@ uv run d2l schedule remove</pre><button onclick="copy(this)">copy</button></div>
      skipped. <code>reindex</code> re-extracts text from files already downloaded, without contacting Brightspace.</p>
   <div class="shell"><pre>uv run d2l login
 uv run d2l courses --all
+uv run d2l show courses --archived   <span class="c"># past terms are archived, not deleted</span>
 uv run d2l reindex</pre><button onclick="copy(this)">copy</button></div>
 </div>
 
@@ -206,7 +207,10 @@ uv run d2l sync</pre><button onclick="copy(this)">copy</button></div>
 <div class="cmd"><table>
   <tr><th>Variable</th><th>Meaning</th></tr>
   <tr><td><code>D2L_BASE_URL</code></td><td>Your Brightspace host, e.g. <code>https://d2l.udst.edu.qa</code> (required)</td></tr>
-  <tr><td><code>D2L_TZ</code></td><td>Time zone for dates (default <code>Asia/Qatar</code>)</td></tr>
+  <tr><td><code>D2L_TZ</code></td><td>Time zone for dates, e.g. <code>Asia/Qatar</code> (default: this computer's)</td></tr>
+  <tr><td><code>D2L_COURSE_CODE_REGEX</code></td><td>Only course codes matching this count as courses, if your school dates its service pages too</td></tr>
+  <tr><td><code>D2L_COURSES_INCLUDE</code>, <code>D2L_COURSES_EXCLUDE</code></td><td>Course ids (from <code>d2l courses --all</code>) to always show or always hide</td></tr>
+  <tr><td><code>D2L_SSO_BUTTON</code></td><td>Label of your login page's SSO button (a regex), if the automatic re-login doesn't find it</td></tr>
   <tr><td><code>D2L_NOTIFY_DESKTOP</code></td><td><code>0</code> turns off desktop notifications</td></tr>
   <tr><td><code>D2L_TELEGRAM_TOKEN</code>, <code>D2L_TELEGRAM_CHAT</code></td><td>Telegram bot token and your chat id</td></tr>
   <tr><td><code>D2L_DISCORD_WEBHOOK</code></td><td>Discord channel webhook URL</td></tr>

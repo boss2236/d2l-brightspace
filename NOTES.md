@@ -16,6 +16,10 @@ JSON calls need `X-Csrf-Token`, which Brightspace keeps in `localStorage['XSRF.T
 
 ## Official API (Valence) works with the browser session — preferred since 18 Sep 2026
 
+Version numbers below are what UDST runs; `api.Api` reads `/d2l/api/versions/` and uses whatever the server
+supports. Courses now come from `lp/<v>/enrollments/myenrollments/` (official) instead of the `mycourses` endpoint
+in the table above; "current" = has start and end dates and today is between them.
+
 No app keys needed: the logged-in session cookie + `X-Csrf-Token` (from `localStorage['XSRF.Token']`) is accepted.
 Versions: `le` 1.94–1.99, `lp` 1.58–1.63 (`GET /d2l/api/versions/`, public).
 

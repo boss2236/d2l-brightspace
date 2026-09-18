@@ -83,7 +83,7 @@ Use <b>HTTP</b> when something can't start a local program, like n8n, a phone ap
 <h2 id="claude-code">Claude Code</h2>
 <div class="cmd">
   <p>Register the server once for your user account, so every project can use it:</p>
-  <div class="shell"><pre>claude mcp add -s user brightspace -- uv run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
+  <div class="shell"><pre>claude mcp add -s user brightspace -- uv run --directory /path/to/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
   <p>Check it with <code>claude mcp list</code>. Inside Claude Code, <code>/mcp</code> shows the tools. Typing <code>/mcp__brightspace__week_ahead</code> runs the built-in weekly-plan prompt.</p>
 </div>
 
@@ -94,11 +94,11 @@ Use <b>HTTP</b> when something can't start a local program, like n8n, a phone ap
   "mcpServers": {
     "brightspace": {
       "command": "uv",
-      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+      "args": ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]
     }
   }
 }</pre><button onclick="copy(this)">copy</button></div>
-  <p>Or run <code>gemini mcp add -s user brightspace uv -- run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</code>. Check with <code>/mcp</code> inside Gemini.</p>
+  <p>Or run <code>gemini mcp add -s user brightspace uv -- run --directory /path/to/d2l-brightspace d2l mcp</code>. Check with <code>/mcp</code> inside Gemini.</p>
 </div>
 
 <h2 id="vscode">VS Code (GitHub Copilot agent mode)</h2>
@@ -109,7 +109,7 @@ Use <b>HTTP</b> when something can't start a local program, like n8n, a phone ap
     "brightspace": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+      "args": ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]
     }
   }
 }</pre><button onclick="copy(this)">copy</button></div>
@@ -118,11 +118,11 @@ Use <b>HTTP</b> when something can't start a local program, like n8n, a phone ap
 
 <h2 id="codex">OpenAI Codex CLI</h2>
 <div class="cmd">
-  <div class="shell"><pre>codex mcp add brightspace -- uv run --directory /home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
+  <div class="shell"><pre>codex mcp add brightspace -- uv run --directory /path/to/d2l-brightspace d2l mcp</pre><button onclick="copy(this)">copy</button></div>
   <p>Or add it to <code>~/.codex/config.toml</code> by hand:</p>
   <div class="shell"><pre>[mcp_servers.brightspace]
 command = "uv"
-args = ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]</pre><button onclick="copy(this)">copy</button></div>
+args = ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]</pre><button onclick="copy(this)">copy</button></div>
 </div>
 
 <h2 id="desktop">Claude Desktop, Cursor, Windsurf, LM Studio and others</h2>
@@ -133,11 +133,11 @@ args = ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2
   "mcpServers": {
     "brightspace": {
       "command": "uv",
-      "args": ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2l-brightspace", "d2l", "mcp"]
+      "args": ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]
     }
   }
 }</pre><button onclick="copy(this)">copy</button></div>
-  <p>If an app can't find <code>uv</code>, use the full path <code>/home/tasir/.local/bin/uv</code>.</p>
+  <p>If an app can't find <code>uv</code>, use its full path (<code>which uv</code> on Linux/macOS, <code>where uv</code> on Windows). Replace <code>/path/to/d2l-brightspace</code> everywhere with the folder you cloned this into. The app's <b>Connect AI</b> tab fills in the real path for you with its <b>Add</b> buttons.</p>
 </div>
 
 <h2 id="http">HTTP clients (anything that takes an MCP URL)</h2>

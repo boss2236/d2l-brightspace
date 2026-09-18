@@ -1,8 +1,8 @@
 """Browser session for Brightspace: you log in once by hand, the profile keeps you logged in.
 
-Brightspace sits behind the university's single sign-on, so there is no password to automate here — and no
-reason to. A persistent browser profile holds the SSO cookies exactly like your normal browser does; the
-scripts reuse that profile and never see your credentials.
+Brightspace usually sits behind the university's single sign-on, so there is no password to automate here — and
+no reason to. The saved session holds the SSO cookies exactly like your normal browser does; the scripts reuse it
+and never see your credentials.
 """
 import os
 import re
@@ -39,18 +39,34 @@ def login(timeout_min: int = 10) -> None:
         ctx.close()
 
 
-def _renew(page) -> bool:
-    """Get a fresh Brightspace session through UDST's Microsoft SSO, the way the login page's SSO button does.
+# Labels SSO buttons on Brightspace login pages commonly carry; D2L_SSO_BUTTON (a regex) overrides for your school
+SSO_LABELS = r"single sign[- ]?on|\bsso\b|sign in with|log ?in with|microsoft|office ?365|google|okta|shibboleth|saml|institution"
 
-    Brightspace's own session times out after a few idle hours, but the Microsoft sign-in cookie
-    (ESTSAUTHPERSISTENT, ~90 days, extended each time it's used) signs straight back in without a password or MFA.
-    Returns False when Microsoft wants a human again (password, MFA, "pick an account").
+
+def _renew(page) -> bool:
+    """Get a fresh Brightspace session through the school's SSO without a password.
+
+    Brightspace's own session times out after a few idle hours, but the identity provider's sign-in cookie (e.g.
+    Microsoft's ESTSAUTHPERSISTENT, ~90 days, extended on use) signs straight back in. Some login pages redirect to
+    the provider by themselves; most show an SSO button, which is pressed once the page's script is ready (UDST:
+    "UDST - Single Sign On Login" — opening its initiate-login URL bare 404s). Returns False when a human is needed
+    (password, MFA, account picker) or the page has no SSO button, e.g. a plain username/password form.
     """
-    # Press the login page's SSO button once its script is ready; going to its initiate-login URL directly 404s.
     page.goto(f"{base_url()}/d2l/login?target=%2fd2l%2fhome", wait_until="networkidle")
-    try:
-        page.get_by_role("button", name=re.compile("single sign on", re.I)).first.click()
-        page.wait_for_url("**/d2l/home**", timeout=45_000)
+    if "/d2l/home" in page.url:                       # redirected by itself
+        return True
+    label = re.compile(os.environ.get("D2L_SSO_BUTTON") or SSO_LABELS, re.I)
+    for finder in (lambda: page.get_by_role("button", name=label), lambda: page.get_by_role("link", name=label)):
+        target = finder().first
+        try:
+            if target.count() and target.is_visible():
+                target.click()
+                page.wait_for_url("**/d2l/home**", timeout=45_000)
+                return True
+        except Exception:
+            return False
+    try:                                              # no button: maybe the page is still heading to the provider
+        page.wait_for_url("**/d2l/home**", timeout=15_000)
         return True
     except Exception:
         return False
@@ -68,8 +84,9 @@ def signed_in_page(headless: bool = True):
     """A page on the Brightspace home page, restored from the saved session. Use inside `with`.
 
     The SSO cookies Brightspace sets are *session* cookies, so the persistent profile alone is not enough;
-    `storage_state` keeps them. When Brightspace's session has timed out, it is renewed silently through Microsoft
-    SSO, and the refreshed cookies are saved after every run — you only log in by hand when Microsoft itself asks.
+    `storage_state` keeps them. When Brightspace's session has timed out, it is renewed silently through the
+    school's SSO, and the refreshed cookies are saved after every run — you only log in by hand when the identity
+    provider itself asks again.
     """
     if not STATE.exists():
         raise SystemExit("No saved session — run `d2l login` first.")
@@ -82,9 +99,9 @@ def signed_in_page(headless: bool = True):
         if "/d2l/login" in page.url:
             if not _renew(page):
                 browser.close()
-                raise SystemExit("Session expired and Microsoft wants you to sign in again (password/MFA) — "
+                raise SystemExit("Session expired and your university's sign-in wants you again (password/MFA) — "
                                  "run `d2l login` or use “Log in again” in the app.")
-            print("Brightspace session had timed out; renewed it through Microsoft sign-in")
+            print("Brightspace session had timed out; renewed it through the university sign-in")
             _save(ctx)
         try:
             yield page

@@ -16,7 +16,7 @@ DB = ROOT / "data" / "d2l.db"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS courses (
   id INTEGER PRIMARY KEY, name TEXT, code TEXT, short TEXT, section TEXT,
-  academic INTEGER, current INTEGER, start TEXT, "end" TEXT, url TEXT);
+  academic INTEGER, current INTEGER, start TEXT, "end" TEXT, url TEXT, archived INTEGER DEFAULT 0, archived_at TEXT);
 CREATE TABLE IF NOT EXISTS announcements (
   id INTEGER PRIMARY KEY, course_id INTEGER, title TEXT, date TEXT, body TEXT, html TEXT, attachments TEXT);
 CREATE TABLE IF NOT EXISTS assignments (
@@ -62,11 +62,20 @@ def connect():
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    _migrate(db)
     try:
         yield db
         db.commit()
     finally:
         db.close()
+
+
+def _migrate(db) -> None:
+    """Bring databases made by older versions up to the current schema."""
+    cols = {r[1] for r in db.execute("PRAGMA table_info(courses)")}
+    if "archived" not in cols:
+        db.execute("ALTER TABLE courses ADD COLUMN archived INTEGER DEFAULT 0")
+        db.execute("ALTER TABLE courses ADD COLUMN archived_at TEXT")
 
 
 def rows(db, sql: str, *args) -> list[dict]:
@@ -100,11 +109,20 @@ def replace_course_rows(db, table: str, course_id: int, new: list[dict]) -> list
     return changes
 
 
-def replace_courses(db, courses: list[dict]) -> None:
-    db.execute("DELETE FROM courses")
+def update_courses(db, courses: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Store the courses being synced as active; archive the ones that dropped out (term ended) instead of deleting
+    them, so last term's grades, announcements and files stay searchable. Returns (newly added, newly archived)."""
+    before = {r["id"]: r for r in rows(db, "SELECT id, short, archived FROM courses")}
+    now_ids = {c["id"] for c in courses}
+    added = [c for c in courses if c["id"] not in before or before[c["id"]]["archived"]]
+    archived = [r for i, r in before.items() if i not in now_ids and not r["archived"]]
     for c in courses:
-        cols = ", ".join(f'"{k}"' for k in c)
-        db.execute(f"INSERT INTO courses ({cols}) VALUES ({', '.join('?' * len(c))})", list(c.values()))
+        row = {**c, "archived": 0, "archived_at": None}
+        cols = ", ".join(f'"{k}"' for k in row)
+        db.execute(f"INSERT OR REPLACE INTO courses ({cols}) VALUES ({', '.join('?' * len(row))})", list(row.values()))
+    for r in archived:
+        db.execute("UPDATE courses SET archived = 1, archived_at = ? WHERE id = ?", (now(), r["id"]))
+    return added, archived
 
 
 def add_event(db, kind: str, ref: str, course_id: int | None, summary: str, detail: str = "", url: str = "",
@@ -125,8 +143,7 @@ def rebuild_search(db) -> None:
                "coalesce(module, '') || ' ' || coalesce(text, '') FROM content")
 
 
-def prune(db, course_ids: list[int]) -> None:
-    """Drop rows of courses that are no longer fetched (e.g. last term's, once the term ends)."""
-    keep = ",".join(str(int(i)) for i in course_ids) or "NULL"
+def prune(db) -> None:
+    """Drop rows whose course isn't stored at all (active or archived) — leftovers, never an archived term."""
     for t in ("announcements", "assignments", "grades", "quizzes", "calendar", "content"):
-        db.execute(f"DELETE FROM {t} WHERE course_id NOT IN ({keep})")
+        db.execute(f"DELETE FROM {t} WHERE course_id NOT IN (SELECT id FROM courses)")

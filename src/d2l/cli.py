@@ -59,6 +59,7 @@ def main() -> None:
     s.add_argument("--course")
     s.add_argument("--open", action="store_true", help="assignments only: hide the ones already submitted")
     s.add_argument("--json", action="store_true", help="print JSON instead of a table")
+    s.add_argument("--archived", action="store_true", help="courses: include past terms that were archived")
 
     r = sub.add_parser("read", help="print one course file's extracted text (id from `show files` or `search`)")
     r.add_argument("id", type=int)
@@ -166,7 +167,7 @@ def _local(args) -> None:
             else:
                 print(notify.flush(db) or "nothing pending")
         elif args.cmd == "show":
-            fn = {"courses": lambda: query.courses(db), "announcements": lambda: query.announcements(db, args.course, limit=500),
+            fn = {"courses": lambda: query.courses(db, args.archived), "announcements": lambda: query.announcements(db, args.course, limit=500),
                   "assignments": lambda: query.assignments(db, args.course, args.open),
                   "grades": lambda: query.grades(db, args.course), "files": lambda: query.files(db, args.course)}
             rows = fn[args.what]()

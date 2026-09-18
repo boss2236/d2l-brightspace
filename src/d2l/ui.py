@@ -227,7 +227,7 @@ function overview() {
 }
 
 const ICON = {new_announcement: "📢", new_grade: "🎯", grade_changed: "🎯", new_assignment: "📝", due_changed: "📝",
-              new_quiz: "⏱", new_files: "📄", due_soon: "⏰", session_expired: "🔑"};
+              new_quiz: "⏱", new_files: "📄", due_soon: "⏰", session_expired: "🔑", new_course: "🎓", course_archived: "🗄"};
 function whatsNew() {
   const rs = filtered(DATA.events);
   if (!rs.length) return '<p class="empty">Nothing new yet. Changes show up here after the next sync notices them.</p>';

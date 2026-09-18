@@ -84,9 +84,10 @@ anything) are configured in `.env`.
 
 ## Scope
 
-Only **this term's** course offerings are synced: a course counts if its code looks like `MATH_1030_2566_1268` and
-its start/end dates include today. Service pages (Student Central Services, Self-Help, Student Employment) and past
-terms are skipped. `sync --scope academic|all` brings them back, and `d2l courses --all` shows what was filtered and why.
+Only **this term's** courses are synced: an enrolment counts if it has both a start and an end date and today falls
+between them. Service pages (student services, self-help, employment) usually have no dates, so they're skipped,
+and so are past terms. `sync --scope academic|all` brings them back, `d2l courses --all` shows what was filtered
+and why, and "Using it at another university" below covers schools where that rule needs help.
 
 ## Before you rely on it
 
@@ -113,13 +114,47 @@ src/d2l/
   app.py       `d2l app`: live dashboard :8766 with the Connect AI tab; runs MCP/REST :8765 and the public link
   public.py    public link modes (quick / own Cloudflare tunnel / own URL or IP), direct port, reachability check
   notify.py    desktop, Telegram, Discord, webhook
-  schedule.py  systemd user timer / service
+  schedule.py  sync timer + always-on app: systemd (Linux), launchd (macOS), Task Scheduler (Windows)
   ui.py        dashboard.html
-  cli.py       `d2l …`
+  cli.py       `d2l …` (also `python -m d2l …`)
+tests/        offline pytest suite
 ```
 
-## Status
+## Using it at another university
 
-Working against `d2l.udst.edu.qa` as of 18 Sep 2026. Fall 2026: 5 course pages, 22 announcements, 9 grade items,
-7 quizzes, 250 content items, 66 files with text. The 31 "missing" files are broken on Brightspace itself (MATH1030
-Lecture-Theatre section); the same material downloads fine from section 20.
+It talks to Brightspace's standard API and asks your server which API versions it supports, so it isn't tied to
+one school. It was built and tested against UDST (`d2l.udst.edu.qa`); other schools may need one of these in `.env`:
+
+| Symptom | Setting |
+|---|---|
+| Service pages (student services, orientation…) show up as courses | `D2L_COURSE_CODE_REGEX`, or `D2L_COURSES_EXCLUDE` |
+| A real course is missing | `D2L_COURSES_INCLUDE` (ids from `d2l courses --all`) |
+| You're asked to log in again every few hours | `D2L_SSO_BUTTON`: the label of your login page's SSO button |
+| Dates are in the wrong time zone | `D2L_TZ` |
+
+When a term ends, its courses are archived rather than deleted: `d2l show courses --archived` lists them, and
+naming a past course (e.g. `d2l search limits --course MATH1020`) still finds its data.
+
+## Platforms
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Sync, dashboard, app, MCP, REST, public link | ✓ | ✓ | ✓ |
+| `d2l schedule` | systemd user timer | launchd agent | Task Scheduler |
+| Desktop notifications | notify-send | Notification Center | use Telegram, Discord or the webhook |
+
+Linux is what it's developed and tested on. The macOS and Windows scheduler and notification code follows those
+systems' documented interfaces but hasn't been run on real machines yet, so reports and fixes are welcome.
+
+## Development
+
+```bash
+uv sync
+uv run pytest          # offline tests: parsing, change detection, archiving, files, search, access control
+```
+
+`NOTES.md` records which Brightspace endpoints work, which don't, and the gotchas found along the way. Update it
+when you find something new, especially for a school other than UDST.
+
+Contributions are welcome. Keep it read-only towards Brightspace, keep requests serial and gentle, and never commit
+anything from `data/`, `session/`, `user-data-dir/` or `.env`.

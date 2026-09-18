@@ -15,7 +15,7 @@ MAX_BYTES = 40 * 1024 * 1024
 def _tidy(t: str) -> str:
     """pypdf writes some PDFs one word per line (with ' ' lines between); join those pages back into prose."""
     t = re.sub(r"(\s?\.){5,}", " … ", t)                   # table-of-contents dot leaders
-    lines = [l.strip() for l in t.split("\n")]
+    lines = [re.sub(r"[ \t]{2,}", " ", l).strip() for l in t.split("\n")]
     words = [l for l in lines if l]
     if len(words) > 8 and sum(len(l.split()) for l in words) / len(words) < 1.3:
         return " ".join(words)
@@ -25,6 +25,8 @@ def _tidy(t: str) -> str:
 def _html_text(raw: str) -> str:
     raw = raw.replace("\r", "").lstrip("\ufeff")
     raw = re.sub(r"(?is)<(script|style).*?</\1>", " ", raw)
+    # block elements end a line even when the HTML source doesn't
+    raw = re.sub(r"(?i)<br\s*/?>|</(p|div|h[1-6]|li|tr|table|section|article|blockquote|pre)>", "\n", raw)
     text = html.unescape(re.sub(r"<[^>]+>", " ", raw)).replace("\xa0", " ").lstrip("\ufeff")
     return re.sub(r"[ \t]*\n\s*", "\n", re.sub(r"[ \t]{2,}", " ", text)).strip()
 

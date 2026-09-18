@@ -1,7 +1,8 @@
 """Send queued events to every configured channel, then mark them sent.
 
 Channels (all optional, set in .env):
-  desktop   notify-send — on by default when available; D2L_NOTIFY_DESKTOP=0 turns it off
+  desktop   Linux notify-send / macOS Notification Center — on by default when available; D2L_NOTIFY_DESKTOP=0
+            turns it off (Windows: use Telegram, Discord or the webhook)
   telegram  D2L_TELEGRAM_TOKEN + D2L_TELEGRAM_CHAT
   discord   D2L_DISCORD_WEBHOOK
   webhook   D2L_WEBHOOK_URL — POSTs {"source": "d2l", "events": [...]} as JSON. Point it at n8n, a custom app,
@@ -10,6 +11,7 @@ Channels (all optional, set in .env):
 import os
 import shutil
 import subprocess
+import sys
 
 import httpx
 
@@ -17,12 +19,12 @@ from . import store
 
 ICON = {"new_announcement": "📢", "new_grade": "🎯", "grade_changed": "🎯", "new_assignment": "📝",
         "due_changed": "📝", "new_quiz": "⏱", "new_files": "📄", "due_soon": "⏰", "session_expired": "🔑",
-        "test": "✅"}
+        "new_course": "🎓", "course_archived": "🗄", "test": "✅"}
 
 
 def channels() -> list[str]:
     out = []
-    if os.environ.get("D2L_NOTIFY_DESKTOP", "1") != "0" and shutil.which("notify-send"):
+    if os.environ.get("D2L_NOTIFY_DESKTOP", "1") != "0" and (shutil.which("notify-send") or sys.platform == "darwin"):
         out.append("desktop")
     if os.environ.get("D2L_TELEGRAM_TOKEN") and os.environ.get("D2L_TELEGRAM_CHAT"):
         out.append("telegram")
@@ -46,7 +48,13 @@ def send(events: list[dict]) -> dict[str, str]:
     text = "\n".join(_line(e) for e in events[:30]) + (f"\n…and {len(events) - 30} more" if len(events) > 30 else "")
     for ch in channels():
         try:
-            if ch == "desktop":
+            if ch == "desktop" and sys.platform == "darwin":
+                for title, body in ([(_line(e), e.get("detail") or "") for e in events] if len(events) <= 4
+                                    else [(f"Brightspace: {len(events)} updates", text)]):
+                    script = 'display notification item 2 of argv with title item 1 of argv'
+                    subprocess.run(["osascript", "-e", f"on run argv\n{script}\nend run", title[:200], body[:300]],
+                                   check=True, timeout=10)
+            elif ch == "desktop":
                 if len(events) <= 4:
                     for e in events:
                         subprocess.run(["notify-send", "-a", "Brightspace", "-u",

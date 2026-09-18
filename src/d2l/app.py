@@ -21,7 +21,7 @@ from .session import ROOT
 
 MCP_PORT, UI_PORT = 8765, 8766
 SETTINGS = ROOT / "data" / "app.json"
-D2L = str(Path(sys.executable).parent / "d2l")
+D2L = [sys.executable, "-m", "d2l"]         # this same install, on any OS
 UV = shutil.which("uv") or "uv"
 STDIO_ARGS = ["run", "--directory", str(ROOT), "d2l", "mcp"]
 
@@ -48,7 +48,7 @@ class Job:
         if self.state == "running":
             return
         self.state, self.log, self.started, self.finished = "running", [], time.time(), None
-        proc = await asyncio.create_subprocess_exec(D2L, *args, cwd=ROOT, stdout=asyncio.subprocess.PIPE,
+        proc = await asyncio.create_subprocess_exec(*D2L, *args, cwd=ROOT, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
         async for line in proc.stdout:
             self.log = (self.log + [line.decode(errors="ignore").rstrip()])[-30:]
@@ -260,7 +260,7 @@ async def serve_file(topic_id: int, download: bool):
             from starlette.responses import RedirectResponse
             return RedirectResponse(f"/files/{topic_id}/" + quote(str(path.relative_to(site))))
     if path is None:
-        proc = await asyncio.create_subprocess_exec(D2L, "get", str(topic_id), cwd=ROOT,
+        proc = await asyncio.create_subprocess_exec(*D2L, "get", str(topic_id), cwd=ROOT,
                                                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), 600)

@@ -5,12 +5,13 @@ Safe to run on a timer: a lock stops overlapping runs, requests are serial and p
 downloaded when they're new or changed, and the first ever run records a baseline instead of flooding you with
 "new" alerts for everything that already existed.
 """
-import fcntl
 import io
+import os
 import json
 import re
 import shutil
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,13 +25,29 @@ FILES = fetch.OUT / "files"
 LOCK = fetch.OUT / ".sync.lock"
 
 
-def run(headless: bool = True, scope: str = "current", files: bool = True, quiet: bool = False) -> dict:
+@contextmanager
+def _only_one_sync():
+    """An OS-level lock (released automatically if the process dies) so two syncs never overlap."""
     fetch.OUT.mkdir(exist_ok=True)
-    with open(LOCK, "w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise SystemExit("another sync is already running")
+    f = open(LOCK, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        raise SystemExit("another sync is already running")
+    try:
+        yield
+    finally:
+        f.close()
+
+
+def run(headless: bool = True, scope: str = "current", files: bool = True, quiet: bool = False) -> dict:
+    with _only_one_sync():
         try:
             return _run(headless, scope, files, quiet)
         except SystemExit as e:
@@ -49,13 +66,20 @@ def _run(headless, scope, want_files, quiet) -> dict:
         api = Api(page)
         first = store.get_meta(db, "last_sync") is None
         cs = fetch.pick(fetch.courses(api), scope)
-        store.replace_courses(db, cs)
-        store.prune(db, [c["id"] for c in cs])
+        added, archived = store.update_courses(db, cs)
+        store.prune(db)
         print(f"{len(cs)} courses ({scope}){' — first run, recording a baseline' if first else ''}")
 
         def ev(*a, **k):
             if not first and store.add_event(db, *a, **k):
                 stats["events"] += 1
+
+        for c in added:
+            ev("new_course", f"course:{c['id']}", c["id"], f"New course: {c['short']}", url=c["url"])
+        for c in archived:
+            ev("course_archived", f"archived:{c['id']}", c["id"],
+               f"{c['short']} archived — its term ended; grades, announcements and files are kept")
+            print(f"  archived {c['short']} (term ended)")
 
         for c in cs:
             ou, news_url = c["id"], f"{base_url()}/d2l/lms/news/main.d2l?ou={c['id']}"

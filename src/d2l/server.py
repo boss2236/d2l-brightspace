@@ -39,10 +39,11 @@ def _db():
 
 
 @mcp.tool(annotations=RO)
-def list_courses() -> list[dict]:
-    """This term's courses with ids, codes, sections, term dates and how much data each has."""
+def list_courses(include_archived: bool = False) -> list[dict]:
+    """This term's courses with ids, codes, sections, term dates and how much data each has. include_archived adds
+    past terms (their data is kept; pass a past course's code to the other tools to query it)."""
     with _db() as db:
-        return query.courses(db)
+        return query.courses(db, include_archived)
 
 
 @mcp.tool(annotations=RO)

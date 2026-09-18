@@ -11,8 +11,10 @@ from zoneinfo import ZoneInfo
 from . import store
 
 
-def tz() -> ZoneInfo:
-    return ZoneInfo(os.environ.get("D2L_TZ", "Asia/Qatar"))
+def tz():
+    """D2L_TZ if set (e.g. Asia/Qatar), otherwise this computer's own time zone."""
+    name = os.environ.get("D2L_TZ", "").strip()
+    return ZoneInfo(name) if name else datetime.now().astimezone().tzinfo
 
 
 def local(iso: str | None) -> str | None:
@@ -27,11 +29,12 @@ def _utc(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
-def course_ids(db, course: str | int | None) -> list[int]:
-    """Accept an org unit id, a code ('MATH1030', 'chem1010') or any part of the name ('chemistry')."""
-    cs = store.rows(db, "SELECT id, code, name FROM courses")
+def course_ids(db, course: str | int | None, include_archived: bool = False) -> list[int]:
+    """Accept an org unit id, a code ('MATH1030', 'chem1010') or any part of the name ('chemistry').
+    No course given means this term's courses; a named course is found among archived terms too."""
+    cs = store.rows(db, "SELECT id, code, name, archived FROM courses ORDER BY archived")
     if course in (None, "", "all"):
-        return [c["id"] for c in cs]
+        return [c["id"] for c in cs if include_archived or not c["archived"]]
     s = str(course).strip().lower()
     if s.isdigit():
         return [int(s)]
@@ -44,13 +47,14 @@ def _in(ids: list[int]) -> str:
     return "(" + ",".join(str(int(i)) for i in ids) + ")" if ids else "(NULL)"
 
 
-def courses(db) -> list[dict]:
+def courses(db, include_archived: bool = False) -> list[dict]:
     out = []
-    for c in store.rows(db, "SELECT * FROM courses ORDER BY code"):
+    for c in store.rows(db, "SELECT * FROM courses WHERE ? OR NOT archived ORDER BY archived, code", int(include_archived)):
         n = lambda t, extra="": db.execute(f"SELECT count(*) FROM {t} WHERE course_id = ? {extra}", (c["id"],)).fetchone()[0]
         out.append({"id": c["id"], "code": c["code"].split("_")[0] + c["code"].split("_")[1] if "_" in c["code"] else c["code"],
                     "name": re.sub(r"^[A-Z]{3,5}\d{4}\s+", "", c["short"] or ""), "section": c["section"], "url": c["url"],
                     "term": f"{local(c['start'])} → {local(c['end'])}" if c["start"] else None, "start": c["start"],
+                    "archived": bool(c["archived"]),
                     "counts": {"announcements": n("announcements"), "files": n("content", "AND file_status = 'ok'"),
                                "graded": n("grades", "AND grade IS NOT NULL"), "grade_items": n("grades"),
                                "assignments": n("assignments"), "quizzes": n("quizzes")}})
