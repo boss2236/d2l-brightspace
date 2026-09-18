@@ -51,8 +51,14 @@ Full reference: [`docs/commands.html`](docs/commands.html). AI and n8n setup: [`
 ### Connect an AI
 
 The easy way: open **Brightspace** from the app launcher (the `d2l app` service at http://127.0.0.1:8766) →
-**Connect AI**. It turns the public link for claude.ai / ChatGPT on or off and copies it, adds the connector to local
-AI apps with one click, and can sync or log in again. The commands below do the same by hand.
+**Connect AI**. For cloud AIs (claude.ai, ChatGPT) pick how the public link is made:
+- **Quick link.** A Cloudflare Quick Tunnel. No setup, but slower, and the address changes on restart.
+- **My Cloudflare tunnel.** Your domain with a fixed address; paste a tunnel token and hostname.
+- **My own URL / IP.** Your own proxy, public IP + port forwarding, ngrok, Tailscale…
+
+A live reachability check says whether the link really works from the internet, and what's wrong if not. The tab
+also adds the connector to local AI apps with one click, and can sync or log in again. The commands below do the
+same by hand.
 
 ```bash
 claude mcp add -s user brightspace -- uv run --directory "$PWD" d2l mcp     # Claude Code
@@ -104,7 +110,8 @@ src/d2l/
   extract.py   text from PDF / DOCX / PPTX / HTML (incl. zipped HTML lessons)
   query.py     every read: deadlines, search, grades, briefs… (shared by CLI, dashboard, MCP, REST)
   server.py    MCP (stdio + streamable HTTP) and REST, token-gated
-  app.py       `d2l app`: live dashboard :8766 with the Connect AI tab; runs MCP/REST :8765 and the public tunnel
+  app.py       `d2l app`: live dashboard :8766 with the Connect AI tab; runs MCP/REST :8765 and the public link
+  public.py    public link modes (quick / own Cloudflare tunnel / own URL or IP), direct port, reachability check
   notify.py    desktop, Telegram, Discord, webhook
   schedule.py  systemd user timer / service
   ui.py        dashboard.html

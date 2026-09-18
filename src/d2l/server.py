@@ -181,7 +181,8 @@ def _rest():
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request):
-        return JSONResponse({"ok": True})
+        # "instance" lets the app's reachability check tell *this* server apart from anything else answering
+        return JSONResponse({"ok": True, "instance": instance_id()})
 
 
 class TokenGate:
@@ -217,6 +218,12 @@ class TokenGate:
                         or secrets.compare_digest(qs.get("token", ""), self.token)):
                     return await self._deny(send, 401, b'{"error": "missing or wrong token"}')
         await self.app(scope, receive, send)
+
+
+def instance_id() -> str:
+    """A public fingerprint of this install (derived from the token, reveals nothing about it)."""
+    import hashlib
+    return hashlib.sha256(("d2l-instance:" + token()).encode()).hexdigest()[:16]
 
 
 def token() -> str:

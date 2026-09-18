@@ -121,6 +121,19 @@ details.row .body { white-space: pre-wrap; font-size: 14px; margin-top: 10px; pa
 table.kv { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
 table.kv td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 table.kv td:first-child { color: var(--muted); white-space: nowrap; width: 1%; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 12px 0; }
+.mode { text-align: start; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: inherit; }
+.mode b { font-size: 14px; } .mode span { font-size: 12.5px; color: var(--muted); }
+.mode.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.modeform { background: var(--soft); border-radius: 10px; padding: 4px 14px; margin-bottom: 10px; }
+.form { display: grid; gap: 10px; margin: 8px 0; }
+.form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.form label.check { display: flex; gap: 8px; align-items: center; color: var(--text); }
+.form label.check input { flex: 0 0 auto; width: auto; margin: 0; }
+.form input:not([type=checkbox]) { width: 100%; font: 13.5px ui-monospace, Menlo, monospace; }
+ol.setup { padding-left: 18px; } ol.setup li { margin-bottom: 4px; }
+.health.ok { color: var(--good); } .health.bad { color: var(--crit); }
 .note { border-left: 3px solid var(--warn); background: var(--card); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
 @media (max-width: 640px) { h1 { font-size: 20px; } .cards { grid-template-columns: minmax(0, 1fr); } select { max-width: none; } }
 </style></head><body><div class="wrap">
@@ -289,8 +302,10 @@ async function api(path, body) {
   const r = await fetch(path, init);
   return r.json();
 }
-async function refresh() {
+let editing = false, draft = null;           // draft: the public-link mode being looked at before saving
+async function refresh(force) {
   try { ST = await api("/ui/status"); } catch { ST = null; }
+  if (editing && !force) return;
   const el = document.getElementById("connect");
   if (el) el.innerHTML = connectHtml();
 }
@@ -299,7 +314,17 @@ if (LIVE) setInterval(() => { if (tab === "connect") refresh(); }, 3000);
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => { btn.textContent = "Copied ✓"; setTimeout(() => btn.textContent = "Copy", 1500); });
 }
-async function setTunnel(on) { ST.tunnel.state = on ? "starting" : "off"; refresh(); await api("/ui/tunnel", {on}); refresh(); }
+function pickMode(m) { draft = m; editing = m === "cloudflare" || m === "custom"; refresh(true); }
+async function savePublic(mode, btn) {
+  const v = id => { const el = document.getElementById(id); return el ? (el.type === "checkbox" ? el.checked : el.value) : undefined; };
+  const body = {mode, cf_host: v("cf_host"), cf_token: v("cf_token"), custom_url: v("custom_url"),
+                direct: v("direct"), direct_port: v("direct_port")};
+  if (btn) { btn.disabled = true; btn.textContent = "Connecting…"; }
+  const r = await api("/ui/public", body);
+  if (!r.ok) { alertBox(r.message); if (btn) { btn.disabled = false; btn.textContent = "Save and connect"; } return; }
+  hideAlert(); editing = false; draft = null; refresh(true);
+}
+async function checkNow(btn) { btn.disabled = true; btn.textContent = "Checking…"; await api("/ui/public/check", {}); refresh(true); }
 async function runJob(name) { await api("/ui/" + name, {}); refresh(); }
 async function addClient(key, btn) {
   btn.disabled = true; btn.textContent = "Adding…";
@@ -308,6 +333,7 @@ async function addClient(key, btn) {
   refresh();
 }
 function alertBox(msg) { const el = document.getElementById("cmsg"); if (el) { el.textContent = msg; el.hidden = false; } }
+function hideAlert() { const el = document.getElementById("cmsg"); if (el) el.hidden = true; }
 let showToken = false;
 
 function connect() {
@@ -322,35 +348,82 @@ function connectHtml() {
     <p class="muted small">Not opening? Start it with <code>uv run d2l app</code>, or install it to always run with
     <code>uv run d2l schedule install --serve</code>. Written guide: <code>docs/connect-ai.html</code>.</p></section>`;
   if (!ST) return '<p class="empty">Loading…</p>';
-  const t = ST.tunnel;
-  const label = {on: "Link is on", starting: "Starting…", off: "Off", error: "Problem"}[t.state];
+  const P = ST.public, mode = draft || P.mode, C = P.config;
+  const label = {on: "Link is on", starting: "Starting…", off: "Off", error: "Problem"}[P.state];
   const job = j => j.state === "idle" ? "" : `<pre class="log">${esc(j.log.join("\\n") || "…")}</pre>`;
+  const card = (m, title, desc) => `<button class="mode ${mode === m ? "sel" : ""}" onclick="pickMode('${m}')">
+      <b>${title}${P.mode === m && m !== "off" ? ' <span class="badge ok">● active</span>' : ""}</b><span>${desc}</span></button>`;
+  const typing = 'oninput="editing = true" onfocus="editing = true"';
+  const H = P.health || {};
+  const checked = H.checked ? new Date(H.checked * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "";
+  const forms = {
+    off: P.mode === "off" ? '<p class="muted small">No public link. Cloud AIs can’t reach your data; apps on this computer still can.</p>'
+       : `<p><button class="btn" onclick="savePublic('off', this)">Turn off public link</button></p>`,
+    quick: `<p class="small">Cloudflare’s free quick tunnel: nothing to set up and no account. It’s slower, and gets a
+       <b>new address every time it restarts</b>, so you re-copy the link after a reboot.</p>
+       ${P.cloudflared ? "" : '<p class="small" style="color:var(--crit)">Needs cloudflared: <code>sudo pacman -S cloudflared</code></p>'}
+       ${P.mode === "quick" ? "" : `<p><button class="btn primary" onclick="savePublic('quick', this)">Use quick link</button></p>`}`,
+    cloudflare: `<ol class="small setup">
+         <li>In <a href="https://one.dash.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Zero Trust</a> → Networks → Tunnels → <b>Create a tunnel</b> → Cloudflared, give it a name.</li>
+         <li>Copy the token from the install command shown (the long text after <code>--token</code>). You don’t need to run that command; this app runs the tunnel.</li>
+         <li>Under <b>Public hostname</b>, add e.g. <code>brightspace</code> . <i>your domain</i>, Service <b>HTTP</b> → <code>localhost:8765</code>.</li>
+         <li>Paste both here.</li></ol>
+       <div class="form">
+         <label>Public hostname<input id="cf_host" ${typing} placeholder="brightspace.example.com" value="${esc(C.cf_host)}"></label>
+         <label>Tunnel token<input id="cf_token" ${typing} type="password" autocomplete="off"
+           placeholder="${C.has_cf_token ? "saved — leave empty to keep it" : "eyJhIjoi…"}"></label>
+       </div>
+       ${P.cloudflared ? "" : '<p class="small" style="color:var(--crit)">Needs cloudflared: <code>sudo pacman -S cloudflared</code></p>'}
+       <p><button class="btn primary" onclick="savePublic('cloudflare', this)">Save and connect</button></p>`,
+    custom: `<p class="small">Use this if you already route a public address to this machine yourself. Point it at
+       <code>http://localhost:8765</code>: your own cloudflared config, Caddy or nginx, <code>tailscale funnel 8765</code>,
+       <code>ngrok http 8765</code>… With a public IP and router port forwarding, turn on the direct port and forward it to this laptop.</p>
+       <div class="form">
+         <label>Public address<input id="custom_url" ${typing} placeholder="https://brightspace.example.com  or  http://203.0.113.7:8767" value="${esc(C.custom_url)}"></label>
+         <label class="check"><input id="direct" type="checkbox" ${typing} ${C.direct ? "checked" : ""}> Open a direct port on this computer (for IP / port forwarding / a proxy on another machine)</label>
+         <label>Direct port<input id="direct_port" ${typing} type="number" min="1024" max="65535" value="${esc(C.direct_port)}" style="max-width:120px"></label>
+       </div>
+       <p class="small muted">Cloud AIs require <b>https</b> with a valid certificate. A plain <code>http://</code> IP works for n8n and your own apps, not for claude.ai or ChatGPT.</p>
+       <p><button class="btn primary" onclick="savePublic('custom', this)">Save and connect</button></p>`,
+  };
   return `
   <p id="cmsg" class="note" hidden></p>
   <section class="panel">
     <div class="phead"><div><h3>Cloud AI: claude.ai, ChatGPT</h3>
-      <p class="muted small">Gives AIs that run in the cloud a private web link to your Brightspace data. Works while this laptop is on.</p></div>
-      <span class="pill ${t.state}">● ${label}</span></div>
-    ${t.url ? `<label class="small muted">Your connector link (keep it secret: it works like a password)</label>
-      <div class="urlbox"><input readonly value="${esc(t.url)}" onclick="this.select()"><button class="btn primary" onclick="copyText('${esc(t.url)}', this)">Copy</button></div>` : ""}
-    ${t.error ? `<p class="small" style="color:var(--warn)">${esc(t.error)}</p>` : ""}
-    <p>${t.state === "off" || t.state === "error"
-        ? `<button class="btn primary" onclick="setTunnel(true)">Turn on public link</button>`
-        : `<button class="btn" onclick="setTunnel(false)">Turn off public link</button>`}</p>
+      <p class="muted small">Cloud AIs need a public link to reach the Brightspace data on this laptop. Choose how:</p></div>
+      <span class="pill ${P.state}">● ${label}</span></div>
+    <div class="modes">
+      ${card("off", "Off", "No public link")}
+      ${card("quick", "Quick link", "Free, no setup. Slower; address changes on restart.")}
+      ${card("cloudflare", "My Cloudflare tunnel", "Your domain, fixed address, faster. Free account.")}
+      ${card("custom", "My own URL / IP", "Own domain, proxy, public IP, ngrok, Tailscale…")}
+    </div>
+    <div class="modeform">${forms[mode]}</div>
+    ${P.mode !== "off" && (!draft || draft === P.mode) ? `
+      ${P.url ? `<label class="small muted">Your connector link (keep it secret: it works like a password)</label>
+        <div class="urlbox"><input readonly value="${esc(P.url)}" onclick="this.select()"><button class="btn primary" onclick="copyText('${esc(P.url)}', this)">Copy</button></div>` : ""}
+      <p class="small health ${H.ok === true ? "ok" : H.ok === false ? "bad" : ""}">
+        ${H.ok === true ? "✓ Reachable from the internet: " + esc(H.detail)
+          : H.ok === false ? "✕ Not reachable: " + esc(H.detail)
+          : P.state === "on" ? "… " + esc(H.detail || "checking reachability") : ""}
+        ${checked ? `<span class="muted"> · checked ${checked}</span>` : ""}
+        ${P.state === "on" ? ' <button class="btn small" onclick="checkNow(this)">Check now</button>' : ""}</p>
+      ${P.direct.on ? `<p class="small muted">Direct port ${P.direct.port} is open on all network interfaces.</p>` : ""}
+      ${P.error ? `<p class="small" style="color:var(--warn)">${esc(P.error)}</p>` : ""}` : ""}
     <div class="steps">
       <div><h4>claude.ai</h4><ol>
-        <li>Turn the link on and press <b>Copy</b>.</li>
+        <li>Set up a link above and press <b>Copy</b>.</li>
         <li>Open <a href="https://claude.ai/settings/connectors" target="_blank" rel="noopener">claude.ai → Settings → Connectors</a>.</li>
         <li><b>Add custom connector</b>, name it <i>Brightspace</i>, paste the link, leave the advanced settings empty, then <b>Add</b>.</li>
         <li>In a chat, open the tools menu and switch <i>Brightspace</i> on. Ask “what’s due this week?”</li></ol></div>
       <div><h4>ChatGPT</h4><ol>
-        <li>Turn the link on and press <b>Copy</b>.</li>
+        <li>Set up a link above and press <b>Copy</b>.</li>
         <li>Open <a href="https://chatgpt.com/#settings/Connectors" target="_blank" rel="noopener">ChatGPT → Settings → Apps &amp; Connectors</a> → Advanced → turn on <b>Developer mode</b>.</li>
         <li><b>Create</b>: name <i>Brightspace</i>, paste the link, Authentication <b>No authentication</b>, tick “I trust this app”, then <b>Create</b>.</li>
         <li>In a chat, pick it from <b>+ → More → Developer mode</b>.</li></ol></div>
     </div>
-    <p class="small muted">The link gets a <b>new address</b> whenever it restarts (laptop reboot, network change). If an AI says it can’t reach Brightspace,
-      copy the new link here and replace it in the connector’s settings.</p>
+    <p class="small muted">If an AI says it can’t reach Brightspace, check the line above: it says what’s wrong. With the quick link,
+      the address changes after a restart, so copy the new link and replace it in the connector’s settings.</p>
   </section>
 
   <section class="panel">

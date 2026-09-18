@@ -3,20 +3,20 @@
     http://127.0.0.1:8766   dashboard + "Connect AI" tab (this computer only, no token)
     http://127.0.0.1:8765   MCP + REST for AIs and apps (token-gated; the only thing the public tunnel reaches)
 
-From the Connect AI tab you can switch the public link for cloud AIs (claude.ai, ChatGPT) on and off and copy it,
-add the connector to AI apps on this computer, run a sync and log in again. Two ports keep the control page off the
-tunnel entirely: cloudflared forwards to 8765 only.
+From the Connect AI tab you can set up the public link for cloud AIs (claude.ai, ChatGPT) — quick link, your own
+Cloudflare tunnel, or your own URL/IP (see public.py) — see whether it is really reachable, add the connector to AI
+apps on this computer, run a sync and log in again. Two ports keep the control page off the public link entirely:
+tunnels and the direct port only ever reach 8765.
 """
 import asyncio
 import json
 import os
-import re
 import shutil
 import sys
 import time
 from pathlib import Path
 
-from . import notify, query, server, store, ui
+from . import notify, public, query, server, store, ui
 from .session import ROOT
 
 MCP_PORT, UI_PORT = 8765, 8766
@@ -57,55 +57,6 @@ class Job:
 
     def view(self) -> dict:
         return {"state": self.state, "log": self.log[-12:], "started": self.started, "finished": self.finished}
-
-
-class Tunnel:
-    """Cloudflare quick tunnel to the MCP port. Restarts itself if it drops (the address changes when it does)."""
-
-    def __init__(self, security):
-        self.security, self.proc, self.host, self.state, self.error, self.since = security, None, None, "off", None, None
-        self.wanted = False
-
-    async def start(self) -> None:
-        self.wanted = True
-        if self.proc or not shutil.which("cloudflared"):
-            if not shutil.which("cloudflared"):
-                self.state, self.error = "error", "cloudflared is not installed (sudo pacman -S cloudflared)"
-            return
-        self.state, self.error = "starting", None
-        self.proc = await asyncio.create_subprocess_exec(
-            "cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{MCP_PORT}",
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-        asyncio.create_task(self._watch(self.proc))
-
-    async def _watch(self, proc) -> None:
-        async for raw in proc.stderr:
-            m = re.search(r"https://([a-z0-9-]+\.trycloudflare\.com)", raw.decode(errors="ignore"))
-            if m and not self.host:
-                self.host = m.group(1)
-                server.allow_host(self.security, self.host)
-                (ROOT / "data" / "connector-url.txt").write_text(server.connector_url(self.host) + "\n")
-                await asyncio.sleep(3)                    # the edge needs a moment before the address resolves
-                self.state, self.since = "on", time.time()
-        await proc.wait()
-        self.proc, self.host = None, None
-        if self.wanted:                                   # dropped, not stopped: come back with a new address
-            self.state, self.error = "starting", "the link dropped and is restarting — the address will change"
-            await asyncio.sleep(5)
-            await self.start()
-        else:
-            self.state = "off"
-
-    async def stop(self) -> None:
-        self.wanted = False
-        if self.proc:
-            self.proc.terminate()
-            await self.proc.wait()
-        self.proc, self.host, self.state, self.error = None, None, "off", None
-
-    def view(self) -> dict:
-        return {"state": self.state, "error": self.error, "since": self.since,
-                "url": server.connector_url(self.host) if self.host and self.state == "on" else None}
 
 
 # --- AI apps on this computer -----------------------------------------------------------------------------------
@@ -179,7 +130,14 @@ def clients_view() -> list[dict]:
 
 # --- the local control page -------------------------------------------------------------------------------------
 
-def build_ui_app(tunnel: Tunnel, jobs: dict[str, Job]):
+def public_settings() -> dict:
+    s = _settings()
+    if "public" in s:
+        return s["public"]
+    return {"mode": "quick" if s.get("tunnel") else "off"}       # settings from before the modes existed
+
+
+def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
     from starlette.applications import Starlette
     from starlette.requests import Request
     from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -214,18 +172,26 @@ def build_ui_app(tunnel: Tunnel, jobs: dict[str, Job]):
             expired = bool(db.execute("SELECT 1 FROM events WHERE kind = 'session_expired' AND ts > ?",
                                       (last or "",)).fetchone())
         return JSONResponse({
-            "tunnel": tunnel.view(), "sync": jobs["sync"].view(), "login": jobs["login"].view(),
+            "public": link.view(), "sync": jobs["sync"].view(), "login": jobs["login"].view(),
             "last_sync": query.local(last), "session_expired": expired, "clients": clients_view(),
             "rest": {"base": f"http://127.0.0.1:{MCP_PORT}/api", "mcp": f"http://127.0.0.1:{MCP_PORT}/mcp",
                      "token": server.token()},
             "notify": {"channels": notify.channels(), "webhook": bool(os.environ.get("D2L_WEBHOOK_URL"))}})
 
-    @route("/ui/tunnel", methods=("POST",))
-    async def set_tunnel(request):
-        on = bool((await request.json()).get("on"))
-        _save(tunnel=on)
-        await (tunnel.start() if on else tunnel.stop())
-        return JSONResponse(tunnel.view())
+    @route("/ui/public", methods=("POST",))
+    async def set_public(request):
+        try:
+            cfg = public.normalise(await request.json(), public_settings())
+        except (public.ConfigError, ValueError) as e:
+            return JSONResponse({"ok": False, "message": str(e)}, status_code=400)
+        _save(public=cfg)
+        await link.apply(dict(cfg))
+        return JSONResponse({"ok": True, **link.view()})
+
+    @route("/ui/public/check", methods=("POST",))
+    async def check_public(request):
+        await link.check()
+        return JSONResponse(link.view())
 
     @route("/ui/sync", methods=("POST",))
     async def sync(request):
@@ -245,7 +211,7 @@ def build_ui_app(tunnel: Tunnel, jobs: dict[str, Job]):
             return JSONResponse(await add_client(key))
         return await guard(request, fn)
 
-    return Starlette(routes=[index, status, set_tunnel, sync, login,
+    return Starlette(routes=[index, status, set_public, check_public, sync, login,
                              Route("/ui/clients/{key}", add, methods=["POST"]),
                              Mount("/docs", StaticFiles(directory=ROOT / "docs", html=True))])
 
@@ -255,12 +221,15 @@ def run(open_browser: bool = False) -> None:
 
     async def main():
         mcp_app, security = server.build_http_app()
-        tunnel, jobs = Tunnel(security), {"sync": Job("sync"), "login": Job("login")}
-        if _settings().get("tunnel"):
-            await tunnel.start()
+        link, jobs = public.PublicLink(security), {"sync": Job("sync"), "login": Job("login")}
         servers = [uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=MCP_PORT, log_level="warning")),
-                   uvicorn.Server(uvicorn.Config(build_ui_app(tunnel, jobs), host="127.0.0.1", port=UI_PORT,
+                   uvicorn.Server(uvicorn.Config(build_ui_app(link, jobs), host="127.0.0.1", port=UI_PORT,
                                                  log_level="warning"))]
+        # start the public link once the MCP server is listening, so its first reachability check can pass
+        async def start_link():
+            await asyncio.sleep(2)
+            await link.apply(dict(public_settings()))
+        asyncio.create_task(start_link())
         print(f"Brightspace app  http://127.0.0.1:{UI_PORT}\nMCP + REST       http://127.0.0.1:{MCP_PORT}")
         if open_browser:
             import webbrowser
@@ -268,6 +237,6 @@ def run(open_browser: bool = False) -> None:
         try:
             await asyncio.gather(*(s.serve() for s in servers))
         finally:
-            await tunnel.stop()
+            await link.stop()
 
     asyncio.run(main())

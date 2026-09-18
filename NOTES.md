@@ -85,6 +85,17 @@ yet; grades exist but are mostly unmarked (`- / 100`).
 - Calendar needs `orgUnitIdsCSV`; without it the cross-course route is a 400.
 - mcp SDK is 2.x: `FastMCP` is now `mcp.server.mcpserver.MCPServer`.
 
+## Public link lessons (18 Sep 2026)
+
+- A new `*.trycloudflare.com` name takes seconds to go live, and systemd-resolved then **caches the NXDOMAIN**:
+  the laptop kept saying "not found" while the internet could reach it. The reachability check resolves through
+  Cloudflare DNS-over-HTTPS and connects to that IP with the right SNI/Host, and gives a new quick link 90 s of grace.
+- `/health` bypasses MCP host validation, so a proxy that rewrites Host passes /health while every MCP call gets
+  421. The check also sends a real MCP `ping` through the connector URL.
+- A named tunnel with a bad or deleted token doesn't fail cleanly: cloudflared retries (and sometimes exits and gets
+  restarted). The app gives it 45 s from connecting to register, across restarts, then reports the token.
+- The tunnel token goes to cloudflared through `TUNNEL_TOKEN`, not argv (argv shows up in `ps`).
+
 ## Ideas
 
 - [ ] Assignment submissions feedback files / rubric text (route: `.../mysubmissions/` has `Feedback`)

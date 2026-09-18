@@ -152,21 +152,37 @@ args = ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2
 
 <h2 id="web">ChatGPT, claude.ai and other web AIs</h2>
 <div class="cmd">
-  <p>Web AIs run in the cloud and can't reach <code>127.0.0.1</code>, so they need a public HTTPS link that forwards
-  to your laptop. The easiest way is the app: open <b>Brightspace</b> from your launcher (or
-  <a href="http://127.0.0.1:8766/#connect">http://127.0.0.1:8766</a>) → <b>Connect AI</b> → <b>Turn on public link</b> →
-  <b>Copy</b>. The link stays on across restarts, but its address changes when it restarts.</p>
+  <p>Web AIs run in the cloud and can't reach <code>127.0.0.1</code>, so they need a public link to this laptop.
+  Open <b>Brightspace</b> from your launcher (or <a href="http://127.0.0.1:8766/#connect">http://127.0.0.1:8766</a>) →
+  <b>Connect AI</b> and pick one of these:</p>
+  <table><tr><th>Mode</th><th>When</th><th>What you do</th></tr>
+    <tr><td><b>Quick link</b></td><td>No setup, try it now</td><td>Press <i>Use quick link</i>. It's free and needs no account, but
+      it's slower and gets a new address on every restart, so you re-copy it into the connector.</td></tr>
+    <tr><td><b>My Cloudflare tunnel</b></td><td>You have a domain on Cloudflare and want a fixed, faster address</td>
+      <td>Zero Trust → Networks → Tunnels → <i>Create a tunnel</i> (Cloudflared). Copy the token from the install
+      command; you don't need to run it. Add a public hostname (e.g. <code>brightspace.yourdomain.com</code>) with service
+      <b>HTTP → <code>localhost:8765</code></b>. Paste the hostname and token in the app. The app runs and supervises the tunnel.</td></tr>
+    <tr><td><b>My own URL / IP</b></td><td>You already expose this machine: own reverse proxy, a public IP with port
+      forwarding, ngrok, Tailscale Funnel, your own cloudflared config…</td>
+      <td>Point it at <code>http://localhost:8765</code> and enter the public address. For a public IP or a proxy on another
+      machine, tick <i>Open a direct port</i> (default 8767) and forward that port to this laptop.</td></tr>
+  </table>
+  <p>Then press <b>Copy</b> and add the link in the AI:</p>
   <ol class="flow">
-    <li><b>claude.ai</b>: Settings → Connectors → <i>Add custom connector</i>. Name it <code>Brightspace</code>, paste the URL,
+    <li><b>claude.ai</b>: Settings → Connectors → <i>Add custom connector</i>. Name it <code>Brightspace</code>, paste the link,
         leave OAuth empty, then enable it in a chat from the tools menu.</li>
-    <li><b>ChatGPT</b>: Settings → Apps &amp; Connectors → Advanced → Developer mode on → <i>Create</i>. Paste the URL and choose
-        authentication <i>None</i>.</li>
-    <li>The current link is also saved in <code>data/connector-url.txt</code>.</li>
+    <li><b>ChatGPT</b>: Settings → Apps &amp; Connectors → Advanced → Developer mode on → <i>Create</i>. Paste the link and set
+        authentication to <i>None</i>.</li>
   </ol>
-  <p class="note">The secret in the URL is the only lock. Anyone who has it can read your courses and grades, so don't
-  share it. It only works while your laptop is on, and it gets a new address every time it restarts, so you'd copy it again
-  from the Connect AI tab. For a permanent address, use a named Cloudflare tunnel on
-  your own domain, or Tailscale Funnel. To rotate the secret, delete <code>D2L_API_TOKEN</code> from <code>.env</code>.</p>
+  <p><b>Is it working?</b> Every minute the app calls the public link from outside, checking the address the way the
+  internet sees it rather than through this laptop's DNS cache. It confirms the answer comes from <i>this</i> app and
+  that a real MCP call gets through. The Connect AI tab then shows either ✓ Reachable or what's wrong: DNS not
+  resolving, connection refused, TLS certificate, tunnel up but not reaching the laptop (502/530), a proxy rewriting
+  the Host header, or a Cloudflare token that's been rejected.</p>
+  <p class="note">The secret in the link is the only lock: anyone who has it can read your courses and grades. Claude.ai
+  and ChatGPT require <b>https</b> with a valid certificate, so a plain <code>http://</code> IP only suits n8n and your own
+  apps. The control page (port 8766) is never exposed; tunnels and the direct port only reach the token-gated MCP/REST
+  port. To rotate the secret, delete <code>D2L_API_TOKEN</code> from <code>.env</code> and restart the app.</p>
 </div>
 
 <h2 id="n8n">n8n, custom apps and WhatsApp</h2>
