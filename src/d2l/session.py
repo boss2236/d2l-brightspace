@@ -5,6 +5,7 @@ reason to. A persistent browser profile holds the SSO cookies exactly like your 
 scripts reuse that profile and never see your credentials.
 """
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,12 +39,37 @@ def login(timeout_min: int = 10) -> None:
         ctx.close()
 
 
+def _renew(page) -> bool:
+    """Get a fresh Brightspace session through UDST's Microsoft SSO, the way the login page's SSO button does.
+
+    Brightspace's own session times out after a few idle hours, but the Microsoft sign-in cookie
+    (ESTSAUTHPERSISTENT, ~90 days, extended each time it's used) signs straight back in without a password or MFA.
+    Returns False when Microsoft wants a human again (password, MFA, "pick an account").
+    """
+    # Press the login page's SSO button once its script is ready; going to its initiate-login URL directly 404s.
+    page.goto(f"{base_url()}/d2l/login?target=%2fd2l%2fhome", wait_until="networkidle")
+    try:
+        page.get_by_role("button", name=re.compile("single sign on", re.I)).first.click()
+        page.wait_for_url("**/d2l/home**", timeout=45_000)
+        return True
+    except Exception:
+        return False
+
+
+def _save(ctx) -> None:
+    """Write the refreshed cookies atomically, so a crash mid-write can't lose the login."""
+    tmp = STATE.with_suffix(".tmp")
+    ctx.storage_state(path=str(tmp))
+    tmp.replace(STATE)
+
+
 @contextmanager
 def signed_in_page(headless: bool = True):
     """A page on the Brightspace home page, restored from the saved session. Use inside `with`.
 
-    Note: the SSO cookies Brightspace sets are *session* cookies — they vanish when the login browser closes, so
-    the persistent profile alone is not enough. `storage_state` keeps them, so that is what we restore here.
+    The SSO cookies Brightspace sets are *session* cookies, so the persistent profile alone is not enough;
+    `storage_state` keeps them. When Brightspace's session has timed out, it is renewed silently through Microsoft
+    SSO, and the refreshed cookies are saved after every run — you only log in by hand when Microsoft itself asks.
     """
     if not STATE.exists():
         raise SystemExit("No saved session — run `d2l login` first.")
@@ -54,10 +80,15 @@ def signed_in_page(headless: bool = True):
         page.set_default_timeout(30000)
         page.goto(f"{base_url()}/d2l/home", wait_until="domcontentloaded")
         if "/d2l/login" in page.url:
-            browser.close()
-            raise SystemExit("Session expired — run `d2l login` again.")
+            if not _renew(page):
+                browser.close()
+                raise SystemExit("Session expired and Microsoft wants you to sign in again (password/MFA) — "
+                                 "run `d2l login` or use “Log in again” in the app.")
+            print("Brightspace session had timed out; renewed it through Microsoft sign-in")
+            _save(ctx)
         try:
             yield page
+            _save(ctx)
         finally:
             browser.close()
 

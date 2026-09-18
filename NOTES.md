@@ -47,6 +47,13 @@ The `/d2l/api/le/1.99/{ou}/content/topics/{id}/file` route 404s here — use `Di
 
 ## Gotchas found the hard way
 
+- **Two logins, two lifetimes.** Brightspace's own session (`d2lSessionVal`) times out after a few idle hours
+  (it died between a 15:33 and a 20:07 sync). The Microsoft SSO cookie (`ESTSAUTHPERSISTENT`) lasts ~90 days and is
+  extended each time it's used. `session._renew` presses the login page's "UDST - Single Sign On Login" button
+  (it runs `/d2l/lp/auth/saml/initiate-login` with parameters of its own — opening that URL bare 404s), Microsoft
+  signs straight back in, and the refreshed cookies are saved after every run. Manual `d2l login` is only needed
+  when Microsoft itself asks for a password/MFA again.
+
 - **SSO cookies are session cookies.** Reusing the browser *profile* is not enough — after the login window
   closes you land back on `/d2l/login`. Saving `storage_state` and restoring it into a fresh context works.
 - **Stopping Playwright from inside a context-close handler deadlocks.** Use a `@contextmanager` that owns the
