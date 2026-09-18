@@ -158,3 +158,12 @@ when you find something new, especially for a school other than UDST.
 
 Contributions are welcome. Keep it read-only towards Brightspace, keep requests serial and gentle, and never commit
 anything from `data/`, `session/`, `user-data-dir/` or `.env`.
+
+## License
+
+Copyright (C) 2026 boss2236 and contributors.
+
+Licensed under the **GNU Affero General Public License v3.0 or later** (see [`LICENSE`](LICENSE)). You can use,
+study, change and share it. If you distribute a modified version, or run one as a service that other people use over
+a network, you must make your source code available under the same license.
+
