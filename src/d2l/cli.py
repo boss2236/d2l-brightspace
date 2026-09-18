@@ -12,7 +12,7 @@ import os
 
 from dotenv import load_dotenv
 
-from . import fetch, session
+from . import fetch, session, ui
 from .calendar import deadlines
 
 
@@ -52,6 +52,8 @@ def main() -> None:
     d.add_argument("--show-browser", action="store_true", help="watch it work instead of running headless")
     du = sub.add_parser("due", help="deadlines from the iCal feed")
     du.add_argument("--days", type=int, default=30)
+    u = sub.add_parser("ui", help="build dashboard.html from the fetched data and open it")
+    u.add_argument("--no-open", action="store_true")
     s = sub.add_parser("show", help="print what was pulled")
     s.add_argument("what", choices=["courses", "assignments", "announcements", "grades"])
     s.add_argument("--open", action="store_true", help="assignments only: hide the ones already submitted")
@@ -72,6 +74,8 @@ def main() -> None:
         for r in rows:
             when = "today" if r["in_days"] == 0 else f"in {r['in_days']}d"
             print(f"{r['due'][:16]}  {when:<7} {r['title'][:60]:<60} {r['course'][:30]}")
+    elif args.cmd == "ui":
+        ui.build(open_browser=not args.no_open)
     elif args.cmd == "show":
         path = fetch.OUT / f"{args.what}.json"
         if not path.exists():
