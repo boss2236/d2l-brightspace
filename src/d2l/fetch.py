@@ -145,8 +145,12 @@ def content(api: Api, ou: int) -> list[dict]:
                 url, kind = t.get("Url") or "", t.get("TypeIdentifier")
                 ext = url.rsplit(".", 1)[-1].lower()[:5] if kind == "File" and "." in url.rsplit("/", 1)[-1] else None
                 view = f"{base_url()}/d2l/le/content/{ou}/viewContent/{t['TopicId']}/View"
+                # external links as they are; Brightspace-internal links (e.g. LTI tools like ALEKS, whose
+                # quickLink launches the tool straight away) on the Brightspace host; files via their view page
+                target = url if url.startswith("http") else (base_url() + url if kind != "File" and url.startswith("/d2l/")
+                                                               else view)
                 out.append({"id": t["TopicId"], "course_id": ou, "module": here, "title": t["Title"], "kind": kind,
-                            "url": url if url.startswith("http") else view, "ext": ext,
+                            "url": target, "ext": ext,
                             "modified": t.get("LastModifiedDate")})
             walk(m.get("Modules") or [], here)
 

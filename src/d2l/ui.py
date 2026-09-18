@@ -290,8 +290,12 @@ function fileLinks(f) {
   return {open: f.url, save: null};
 }
 function fileRow(f) {
-  if (f.kind !== "File") return `<div class="row"><span class="title"><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a> <span class="muted small">↗</span></span>
-      <span class="right"><span class="type">${esc(f.kind === "Link" ? "link" : f.kind)}</span></span></div>`;
+  if (f.kind !== "File") {
+    const tool = /type=lti/.test(f.url || "");
+    return `<div class="row"><span class="title"><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a> <span class="muted small">↗</span></span>
+      <span class="right"><span class="type">${tool ? "tool" : esc(f.kind === "Link" ? "link" : f.kind)}</span></span>
+      ${tool ? '<span class="meta">opens through your Brightspace login, straight into the tool</span>' : ""}</div>`;
+  }
   const L = fileLinks(f), stored = f.status === "ok";
   const note = f.status === "missing" ? "missing on Brightspace itself — the same file may be in another section"
     : f.status === "too_big" ? "too big to store — opens from Brightspace"
