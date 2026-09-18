@@ -203,6 +203,16 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
         asyncio.create_task(jobs["login"].run("login"))
         return JSONResponse({"ok": True})
 
+    async def open_file(request: Request):
+        async def fn(req):
+            return await serve_file(int(req.path_params["id"]), req.query_params.get("download") == "1")
+        return await guard(request, fn)
+
+    async def open_asset(request: Request):
+        async def fn(req):
+            return await serve_asset(int(req.path_params["id"]), req.path_params["rest"])
+        return await guard(request, fn)
+
     async def add(request: Request):
         async def fn(req):
             key = req.path_params["key"]
@@ -213,7 +223,61 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
 
     return Starlette(routes=[index, status, set_public, check_public, sync, login,
                              Route("/ui/clients/{key}", add, methods=["POST"]),
+                             Route("/files/{id:int}", open_file, methods=["GET"]),
+                             Route("/files/{id:int}/{rest:path}", open_asset, methods=["GET"]),
                              Mount("/docs", StaticFiles(directory=ROOT / "docs", html=True))])
+
+
+def lesson_dir(topic_id: int):
+    """Folder an unpacked HTML lesson lives in (data/files/<course>/<id>/), if any."""
+    with store.connect() as db:
+        r = db.execute("SELECT course_id FROM content WHERE id = ?", (int(topic_id),)).fetchone()
+    d = ROOT / "data" / "files" / str(r[0]) / str(int(topic_id)) if r else None
+    return d if d and d.is_dir() else None
+
+
+async def serve_asset(topic_id: int, rel: str):
+    """A page or image inside an unpacked lesson, confined to that lesson's folder."""
+    from starlette.responses import FileResponse, PlainTextResponse
+    site = lesson_dir(topic_id)
+    target = (site / rel).resolve() if site else None
+    if not target or not target.is_relative_to(site.resolve()) or not target.is_file():
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(target)
+
+
+async def serve_file(topic_id: int, download: bool):
+    """A course file from the local copy. Not downloaded yet (videos, images, anything new since the last sync)?
+    Fetch it from Brightspace first with the saved login — the same thing `d2l get <id>` does."""
+    from html import escape
+    from starlette.responses import HTMLResponse
+
+    path = server.local_file(topic_id)
+    if path is not None and not download and path.suffix.lower() in (".html", ".htm"):
+        site = lesson_dir(topic_id)
+        if site and path.is_relative_to(site):
+            from urllib.parse import quote
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(f"/files/{topic_id}/" + quote(str(path.relative_to(site))))
+    if path is None:
+        proc = await asyncio.create_subprocess_exec(D2L, "get", str(topic_id), cwd=ROOT,
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), 600)
+        except asyncio.TimeoutError:
+            proc.kill()
+            out = b"Timed out fetching the file from Brightspace."
+        path = server.local_file(topic_id)
+        if path is None:
+            msg = out.decode(errors="ignore").strip().splitlines()[-1] if out.strip() else "Couldn't get this file."
+            with store.connect() as db:
+                row = db.execute("SELECT title, url FROM content WHERE id = ?", (topic_id,)).fetchone()
+            link = f'<p><a href="{escape(row[1])}">Open it in Brightspace instead</a></p>' if row and row[1] else ""
+            return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><title>File unavailable</title>
+<body style="font:15px/1.5 system-ui;max-width:640px;margin:48px auto;padding:0 16px">
+<h2 style="margin-bottom:4px">{escape(row[0] if row else "File")}</h2><p>{escape(msg)}</p>{link}
+<p><a href="/#files">← Back to Files</a></p>""", status_code=404)
+    return server.file_response(topic_id, path, download)
 
 
 def run(open_browser: bool = False) -> None:

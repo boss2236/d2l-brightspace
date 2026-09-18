@@ -96,6 +96,13 @@ yet; grades exist but are mostly unmarked (`- / 100`).
   restarted). The app gives it 45 s from connecting to register, across restarts, then reports the token.
 - The tunnel token goes to cloudflared through `TUNNEL_TOKEN`, not argv (argv shows up in `ps`).
 
+## Files (18 Sep 2026)
+
+- `DirectFileTopicDownload` returns PDFs, DOCX, PPTX and images as-is, but **wraps HTML lessons and videos in a zip**
+  (a lesson zip holds the page plus its images). `sync._save_bytes` unpacks: a lesson becomes a folder served as a
+  small site at `/files/<id>/…`, a single wrapped file (video) is stored as itself so it plays.
+- Videos (~40–50 MB each) are not fetched by the sync; clicking one in the app (or `d2l get <id>`) fetches it.
+
 ## Ideas
 
 - [ ] Assignment submissions feedback files / rubric text (route: `.../mysubmissions/` has `Feedback`)

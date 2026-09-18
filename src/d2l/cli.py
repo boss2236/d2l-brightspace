@@ -63,6 +63,9 @@ def main() -> None:
     r = sub.add_parser("read", help="print one course file's extracted text (id from `show files` or `search`)")
     r.add_argument("id", type=int)
 
+    g = sub.add_parser("get", help="download one course file (id from `show files`/`search`) and print its path")
+    g.add_argument("id", type=int)
+
     sub.add_parser("reindex", help="re-extract text from downloaded files (no network)")
 
     u = sub.add_parser("ui", help="build dashboard.html from the stored data and open it")
@@ -113,6 +116,9 @@ def main() -> None:
         from . import schedule
         {"install": lambda: schedule.install(args.times, args.serve), "status": schedule.status,
          "remove": schedule.remove}[args.action]()
+    elif args.cmd == "get":
+        from . import sync
+        print(sync.get_file(args.id))
     elif args.cmd == "ui":
         from . import ui
         ui.build(open_browser=not args.no_open)
@@ -147,6 +153,8 @@ def _local(args) -> None:
             print(json.dumps(d, indent=1, ensure_ascii=False) if not d or "text" not in d else f"# {d['title']}\n\n{d['text']}")
         elif args.cmd == "reindex":
             from .extract import reindex
+            from .sync import unpack_stored
+            print(f"unpacked {unpack_stored(db)} zipped files")
             print(f"re-extracted {reindex(db, ROOT)} files")
             store.rebuild_search(db)
         elif args.cmd == "notify":

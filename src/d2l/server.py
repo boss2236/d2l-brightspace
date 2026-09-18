@@ -128,6 +128,63 @@ def sync_status() -> dict:
                 "files_with_text": db.execute("SELECT count(*) FROM content WHERE file_status = 'ok'").fetchone()[0]}
 
 
+@mcp.tool(annotations=RO)
+def get_file_link(id: int) -> dict:
+    """A link to download a course file (PDF, slides, worksheet…) — give it to the user when they ask for the file
+    itself rather than its text. Includes a public link when the app's public link is on."""
+    with _db() as db:
+        r = db.execute("SELECT title, kind, ext, file_status, url FROM content WHERE id = ?", (int(id),)).fetchone()
+    if not r:
+        return {"error": f"no content item {id}"}
+    if r[1] != "File":
+        return {"title": r[0], "kind": r[1], "url": r[4], "note": "this is a link, not a file"}
+    out = {"title": r[0], "type": r[2], "stored_locally": r[3] == "ok",
+           "local_app": f"http://127.0.0.1:8766/files/{int(id)}",
+           "brightspace": r[4]}
+    base = _public_base()
+    if base and r[3] == "ok":
+        out["public_download"] = f"{base}/c/{token()}/api/files/{int(id)}/content?download=1"
+    elif not r[3] == "ok":
+        out["note"] = "not downloaded yet: opening the local_app link fetches it from Brightspace"
+    return out
+
+
+def _public_base() -> str | None:
+    """The public link's base URL if the app currently has one (read from the file the app keeps up to date)."""
+    import json
+    try:
+        mode = json.loads((ROOT / "data" / "app.json").read_text()).get("public", {}).get("mode", "off")
+        url = (ROOT / "data" / "connector-url.txt").read_text().strip()
+    except (OSError, ValueError):
+        return None
+    return url.split("/c/")[0] if mode != "off" and "/c/" in url else None
+
+
+def local_file(topic_id: int):
+    """Path of the downloaded copy of a content topic, or None when there isn't one (yet)."""
+    with store.connect() as db:
+        r = db.execute("SELECT file_path, file_status FROM content WHERE id = ?", (int(topic_id),)).fetchone()
+    if r and r[1] == "ok" and r[0] and (ROOT / r[0]).exists():
+        return ROOT / r[0]
+    return None
+
+
+def file_response(topic_id: int, path, download: bool):
+    """Serve a stored course file under its Brightspace title; PDFs/images open in the browser unless download."""
+    import mimetypes
+    import re as _re
+    from starlette.responses import FileResponse
+    with store.connect() as db:
+        title = db.execute("SELECT title FROM content WHERE id = ?", (int(topic_id),)).fetchone()[0]
+    ext = path.suffix
+    name = _re.sub(r'[\\/:*?"<>|]+', "_", title).strip() or "file"
+    if not name.lower().endswith(ext.lower()):
+        name += ext
+    kind = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=kind, filename=name,
+                        content_disposition_type="attachment" if download else "inline")
+
+
 @mcp.resource("d2l://course/{course_id}", mime_type="text/markdown")
 def course_resource(course_id: str) -> str:
     """A course brief as a resource, for clients that attach resources as context."""
@@ -178,6 +235,15 @@ def _rest():
     route("/api/events")(lambda db, p, q: query.events(db, _since(num(q, "since_days", 7)), int(num(q, "limit", 100))))
     route("/api/courses/{id:int}/brief")(lambda db, p, q: query.course_markdown(db, p["id"]))
     route("/api/status")(lambda db, p, q: sync_status())
+
+    @mcp.custom_route("/api/files/{id:int}/content", methods=["GET"])
+    async def file_content(request: Request):
+        # already downloaded files only; fetching from Brightspace on demand is the local app's job
+        path = local_file(request.path_params["id"])
+        if path is None:
+            return JSONResponse({"error": "not downloaded yet — open it once in the app (Files tab) or run "
+                                          "`d2l get <id>`"}, status_code=404)
+        return file_response(request.path_params["id"], path, request.query_params.get("download") == "1")
 
     @mcp.custom_route("/health", methods=["GET"])
     async def health(request: Request):

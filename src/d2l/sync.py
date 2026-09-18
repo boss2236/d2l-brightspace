@@ -6,9 +6,13 @@ downloaded when they're new or changed, and the first ever run records a baselin
 "new" alerts for everything that already existed.
 """
 import fcntl
+import io
 import json
 import re
+import shutil
+import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from . import fetch, notify, store
 from .api import Api, NotFound
@@ -115,8 +119,79 @@ def _run(headless, scope, want_files, quiet) -> dict:
     return stats
 
 
+ON_DEMAND_MAX = 500 * 1024 * 1024        # files fetched because you clicked them (videos included)
+
+
+def _store_file(api: Api, db, t: dict, limit: int) -> str:
+    """Download one content topic into data/files/<course>/, extract its text if it has any, record it.
+    Returns the new file_status: ok | missing | too_big."""
+    try:
+        data = api.download(t["course_id"], t["id"])
+    except NotFound:
+        db.execute("UPDATE content SET file_status = 'missing' WHERE id = ?", (t["id"],))
+        return "missing"
+    if len(data) > limit:
+        db.execute("UPDATE content SET file_status = 'too_big' WHERE id = ?", (t["id"],))
+        return "too_big"
+    path = _save_bytes(t, data)
+    db.execute("UPDATE content SET file_path = ?, file_status = 'ok', text = ? WHERE id = ?",
+               (str(path.relative_to(fetch.OUT.parent)), text_of(path) if t["ext"] in TEXT_TYPES else None, t["id"]))
+    db.commit()
+    return "ok"
+
+
+OFFICE = {"docx", "pptx", "xlsx", "zip"}          # formats that *are* zip files — leave them alone
+
+
+def _save_bytes(t: dict, data: bytes) -> Path:
+    """Write a downloaded topic to data/files/<course>/. Brightspace wraps HTML lessons and videos in a zip: a
+    lesson is unpacked into its own folder (page + images, served as a site), a single wrapped file is stored as
+    itself so it opens and plays normally."""
+    folder = FILES / str(t["course_id"])
+    folder.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r"[^A-Za-z0-9._ -]+", "_", t["title"])[:80].strip() or "file"
+    ext = t["ext"] or "bin"
+    plain = folder / f"{t['id']}-{name}.{ext}"
+    if data[:4] != b"PK\x03\x04" or ext in OFFICE:
+        plain.write_bytes(data)
+        return plain
+    z = zipfile.ZipFile(io.BytesIO(data))
+    members = [m for m in z.infolist() if not m.is_dir()]
+    if ext in ("html", "htm"):
+        dest = folder / str(t["id"])
+        shutil.rmtree(dest, ignore_errors=True)
+        z.extractall(dest)                       # extractall drops absolute paths and ".." components
+        pages = [m for m in members if m.filename.lower().endswith((".html", ".htm"))] or members
+        main = min(pages, key=lambda m: (m.filename.count("/"), len(m.filename)))
+        return dest / main.filename
+    same = [m for m in members if m.filename.lower().endswith("." + ext)]
+    if len(same) == 1:
+        plain.write_bytes(z.read(same[0]))
+        return plain
+    kept = plain.with_suffix(".zip")             # several files inside: keep the archive as a download
+    kept.write_bytes(data)
+    return kept
+
+
+def unpack_stored(db) -> int:
+    """One-off fix for files stored before unwrapping existed: unpack zipped lessons/videos already on disk."""
+    n = 0
+    for r in store.rows(db, "SELECT id, course_id, title, ext, file_path FROM content WHERE file_status = 'ok'"):
+        p = fetch.OUT.parent / r["file_path"]
+        if (r["ext"] or "") in OFFICE or not p.is_file() or not zipfile.is_zipfile(p) or p.suffix == ".zip":
+            continue
+        data = p.read_bytes()
+        new = _save_bytes(r, data)
+        if new != p:
+            p.unlink()
+        db.execute("UPDATE content SET file_path = ? WHERE id = ?", (str(new.relative_to(fetch.OUT.parent)), r["id"]))
+        n += 1
+    return n
+
+
 def _download(api: Api, db) -> int:
-    """Fetch course files that are new or changed and pull their text out for search. Videos are skipped."""
+    """Fetch course files that are new or changed and pull their text out for search. Videos and images are left
+    for on-demand download (`get_file`), so a sync stays quick."""
     todo = store.rows(db, "SELECT id, course_id, title, ext FROM content WHERE kind = 'File' AND file_status IS NULL")
     n = 0
     for t in todo:
@@ -124,26 +199,36 @@ def _download(api: Api, db) -> int:
             db.execute("UPDATE content SET file_status = 'skipped' WHERE id = ?", (t["id"],))
             continue
         try:
-            data = api.download(t["course_id"], t["id"])
-        except NotFound:
-            db.execute("UPDATE content SET file_status = 'missing' WHERE id = ?", (t["id"],))
-            continue
+            if _store_file(api, db, t, MAX_BYTES) == "ok":
+                n += 1
+                print(f"  ↓ {t['title'][:70]}")
         except Exception as e:
-            print(f"  ! {t['title']}: {e}")
-            continue                                  # stays NULL, retried next sync
-        if len(data) > MAX_BYTES:
-            db.execute("UPDATE content SET file_status = 'too_big' WHERE id = ?", (t["id"],))
-            continue
-        folder = FILES / str(t["course_id"])
-        folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{t['id']}-{re.sub(r'[^A-Za-z0-9._ -]+', '_', t['title'])[:80].strip()}.{t['ext']}"
-        path.write_bytes(data)
-        db.execute("UPDATE content SET file_path = ?, file_status = 'ok', text = ? WHERE id = ?",
-                   (str(path.relative_to(fetch.OUT.parent)), text_of(path), t["id"]))
-        db.commit()
-        n += 1
-        print(f"  ↓ {t['title'][:70]}")
+            print(f"  ! {t['title']}: {e}")           # stays NULL, retried next sync
     return n
+
+
+def get_file(topic_id: int, headless: bool = True):
+    """The local copy of one course file, downloading it from Brightspace first if needed (e.g. a video the sync
+    skipped, or a file added since the last sync). Raises SystemExit with a readable reason otherwise."""
+    with store.connect() as db:
+        rows = store.rows(db, "SELECT id, course_id, title, ext, kind, file_path, file_status FROM content WHERE id = ?",
+                          int(topic_id))
+    if not rows or rows[0]["kind"] != "File":
+        raise SystemExit(f"{topic_id} is not a course file (it may be a link — open it in Brightspace)")
+    t = rows[0]
+    if t["file_status"] == "ok" and t["file_path"] and (fetch.OUT.parent / t["file_path"]).exists():
+        return fetch.OUT.parent / t["file_path"]
+    with signed_in_page(headless=headless) as page, store.connect() as db:
+        status = _store_file(Api(page), db, t, ON_DEMAND_MAX)
+        if status == "ok":
+            store.rebuild_search(db)
+    if status == "missing":
+        raise SystemExit("Brightspace itself can't serve this file (it's missing there — the browser gets an "
+                         "error too). The same material is often in another section of the course.")
+    if status == "too_big":
+        raise SystemExit("This file is over 500 MB — open it in Brightspace instead.")
+    with store.connect() as db:
+        return fetch.OUT.parent / db.execute("SELECT file_path FROM content WHERE id = ?", (int(topic_id),)).fetchone()[0]
 
 
 def _due_soon(db, stats) -> None:

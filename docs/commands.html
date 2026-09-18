@@ -129,12 +129,15 @@ uv run d2l search density --course chem1011</pre><button onclick="copy(this)">co
 <div class="cmd" id="show">
   <h3><span class="name">show</span> · <span class="name">read</span><span class="tag">offline</span></h3>
   <p><code>show</code> prints stored data as a table, or as JSON with <code>--json</code>. <code>read</code> prints a
-     course file's extracted text.</p>
+     course file's extracted text; <code>get</code> downloads a file, including videos and images the sync
+     skips, and prints its path. In the app, the <b>Files</b> tab does the same: click a file to open it, or use
+     <b>↓ Download</b>.</p>
   <div class="shell"><pre>uv run d2l show courses
 uv run d2l show grades --course math1030
 uv run d2l show assignments --open
 uv run d2l show files --course chem1010
-uv run d2l read 4026138          <span class="c"># id from `show files` or `search`</span></pre><button onclick="copy(this)">copy</button></div>
+uv run d2l read 4026138          <span class="c"># id from `show files` or `search`</span>
+uv run d2l get 3972581           <span class="c"># download one file (videos too) and print where it is</span></pre><button onclick="copy(this)">copy</button></div>
 </div>
 
 <div class="cmd" id="ui">

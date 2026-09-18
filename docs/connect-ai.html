@@ -214,6 +214,7 @@ args = ["run", "--directory", "/home/tasir/Projects/hobby/reverse-app-connect/d2
   <tr><td><code>get_assignments</code></td><td>Folders, instructions, due dates, submission status and score</td></tr>
   <tr><td><code>search</code></td><td>Full-text search across everything, including lecture-note text</td></tr>
   <tr><td><code>list_files</code> / <code>read_document</code></td><td>The content tree, and the text of a PDF, DOCX, PPTX or HTML lesson (paged)</td></tr>
+  <tr><td><code>get_file_link</code></td><td>A download link for a file (local app link, plus a public link when that's on)</td></tr>
   <tr><td><code>course_brief</code></td><td>A whole course as one markdown document</td></tr>
   <tr><td><code>list_courses</code> / <code>sync_status</code></td><td>What's there and how fresh it is</td></tr>
 </table>
@@ -233,6 +234,7 @@ MATH1030 Unit 1 notes"</i> · <i>"Make me a revision plan for Test 1"</i> · <i>
   <tr><td><code>/api/search?q=&amp;course=</code></td><td>Full-text search</td></tr>
   <tr><td><code>/api/files?course=</code></td><td>Content tree</td></tr>
   <tr><td><code>/api/documents/{id}?offset=&amp;length=</code></td><td>Text of one file</td></tr>
+  <tr><td><code>/api/files/{id}/content?download=1</code></td><td>The file itself (PDF, slides, video…), once it's downloaded</td></tr>
   <tr><td><code>/api/events?since_days=7</code></td><td>Change feed</td></tr>
   <tr><td><code>/api/courses/{id}/brief</code></td><td>Markdown course brief</td></tr>
   <tr><td><code>/api/status</code> · <code>/health</code></td><td>Sync status · liveness (no token)</td></tr>

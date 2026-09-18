@@ -111,6 +111,7 @@ details.row .body { white-space: pre-wrap; font-size: 14px; margin-top: 10px; pa
 .btn:hover { border-color: var(--accent); text-decoration: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.small { padding: 2px 8px; font-size: 12.5px; }
+.row .right .btn.small { margin-left: 8px; }
 .btn:disabled { opacity: .6; cursor: default; }
 .urlbox { display: flex; gap: 8px; margin: 6px 0 4px; }
 .urlbox input { flex: 1; font: 13px ui-monospace, Menlo, monospace; min-width: 0; }
@@ -282,15 +283,31 @@ function assignments() {
   }).join("")}</div>`;
 }
 
+function fileLinks(f) {
+  // live app: the app serves the stored copy (fetching it first if needed); saved dashboard: the copy next to it
+  if (LIVE) return {open: `/files/${f.id}`, save: `/files/${f.id}?download=1`};
+  if (f.status === "ok" && f.file_path) { const u = encodeURI(f.file_path); return {open: u, save: u}; }
+  return {open: f.url, save: null};
+}
+function fileRow(f) {
+  if (f.kind !== "File") return `<div class="row"><span class="title"><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a> <span class="muted small">↗</span></span>
+      <span class="right"><span class="type">${esc(f.kind === "Link" ? "link" : f.kind)}</span></span></div>`;
+  const L = fileLinks(f), stored = f.status === "ok";
+  const note = f.status === "missing" ? "missing on Brightspace itself — the same file may be in another section"
+    : f.status === "too_big" ? "too big to store — opens from Brightspace"
+    : !stored ? (LIVE ? "not stored yet — opening it downloads it first" : "not stored yet — open the live app to download it") : "";
+  return `<div class="row"><span class="title"><a href="${esc(L.open)}" target="_blank" rel="noopener">${esc(f.title)}</a></span>
+      <span class="right"><span class="type">${esc(f.type || "file")}</span>
+        ${L.save && f.status !== "missing" ? `<a class="btn small" href="${esc(L.save)}" download title="Download">↓ Download</a>` : ""}</span>
+      ${note ? `<span class="meta">${esc(note)}</span>` : ""}</div>`;
+}
 function files() {
   const rs = filtered(DATA.files);
   if (!rs.length) return '<p class="empty">No course content matches.</p>';
   const groups = {};
   rs.forEach(f => (groups[f.course_id + "|" + f.module] ||= []).push(f));
   return `<div class="list">${Object.entries(groups).map(([k, fs]) => `<div class="cat" style="padding:4px 14px 0">${chip(+k.split("|")[0])} ${esc(fs[0].module)}</div>` +
-    fs.map(f => `<div class="row"><span class="title"><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a></span>
-      <span class="right"><span class="type">${esc(f.type || f.kind)}</span></span>
-      ${f.status && f.status !== "ok" && f.status !== "skipped" ? `<span class="meta">${esc(f.status)} on Brightspace</span>` : ""}</div>`).join("")).join("")}</div>`;
+    fs.map(fileRow).join("")).join("")}</div>`;
 }
 
 // --- Connect AI -------------------------------------------------------------------------------------------------

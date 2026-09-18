@@ -157,8 +157,8 @@ def files(db, course=None) -> list[dict]:
     names = _names(db)
     return [{"id": c["id"], "course": names.get(c["course_id"]), "course_id": c["course_id"], "module": c["module"], "title": c["title"],
              "kind": c["kind"], "type": c["ext"], "url": c["url"], "modified": local(c["modified"]),
-             "has_text": bool(c["text"]), "status": c["file_status"]}
-            for c in store.rows(db, f"SELECT id, course_id, module, title, kind, ext, url, modified, file_status, "
+             "has_text": bool(c["text"]), "status": c["file_status"], "file_path": c["file_path"]}
+            for c in store.rows(db, f"SELECT id, course_id, module, title, kind, ext, url, modified, file_status, file_path, "
                                     f"text IS NOT NULL AND length(text) > 40 AS text FROM content "
                                     f"WHERE course_id IN {_in(course_ids(db, course))} ORDER BY course_id, module, id")]
 
