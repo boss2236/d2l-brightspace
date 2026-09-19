@@ -73,15 +73,18 @@ redirects, so the key can't be forwarded to another host.
    `401 {"error": "invalid key"}`. Compare hashes in constant time. Never store or log keys in plain text.
 2. **Validate.** Reject bodies over 1 MB (`413`), a `version` it doesn't support, or any `payload` that fails
    `importPayloadSchema` (`422 {"error": "..."}`). Cap the number of courses (e.g. 50) and deadlines per course.
-3. **Upsert, scoped to the key's user.**
-   - Course: match by (`user_id`, `external_id`). Create it the first time with the payload's name, term and credits;
-     afterwards keep the student's own edits to name and credits.
+3. **Upsert, scoped to the key's user.** Manual use and the connector must coexist: a student can type courses in
+   by hand, connect later, and pause syncing per course.
+   - Course: match by (`user_id`, `external_id`). If there's no match, first **link to a course the student entered
+     by hand** (same name, or exactly one unlinked course whose name contains the course `code`); only if none or
+     several match, create a new one. Keep the student's own name and credits afterwards.
+   - A course the student **paused** (`sync_enabled = false`) is skipped entirely and counted as `paused`.
    - Categories and items: match by name within the course. Update weight, `max_points` and `achieved_points`;
      add new ones. **Don't delete** categories or items the student added in Semestra, or ones Brightspace no
      longer lists (mark them stale at most).
    - Deadlines: optional. Upsert by `external_id` if Semestra shows deadlines.
 4. **Record** the key's `last_used_at` and the course's `synced_at`.
-5. **Answer** `200 {"ok": true, "courses": <n upserted>}`.
+5. **Answer** `200 {"ok": true, "courses": <n updated>, "linked_to_existing": <n>, "paused": <n>}`.
 
 Rate-limit per key (e.g. 60 requests/hour). The connector syncs about 3× a day.
 

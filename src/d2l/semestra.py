@@ -195,7 +195,16 @@ def push(db=None) -> dict:
             except ValueError:
                 pass
             return _record(db, False, f"Semestra returned HTTP {r.status_code} {detail}".strip())
-        return _record(db, True, f"sent {len(data['courses'])} course(s)")
+        try:
+            info = r.json()
+        except ValueError:
+            info = {}
+        notes = []
+        if info.get("linked_to_existing"):
+            notes.append(f"{info['linked_to_existing']} linked to a course you had entered by hand")
+        if info.get("paused"):
+            notes.append(f"{info['paused']} paused in Semestra, left unchanged")
+        return _record(db, True, f"sent {len(data['courses'])} course(s)" + (" · " + " · ".join(notes) if notes else ""))
     finally:
         if own:
             ctx.__exit__(None, None, None)

@@ -155,3 +155,12 @@ def test_token_gate_follows_rotation():
 def test_ocr_can_be_switched_off(monkeypatch):
     monkeypatch.setenv("D2L_OCR", "0")
     assert extract.ocr_available() is False and extract._ocr(__file__, [1]) == {}
+
+
+def test_semestra_push_reports_linked_and_paused_courses(maths, monkeypatch):
+    monkeypatch.setenv("SEMESTRA_URL", "https://semestra.example/ingest")
+    monkeypatch.setenv("SEMESTRA_KEY", "sk_semestra_" + "c" * 30)
+    monkeypatch.setattr(semestra.httpx, "post", lambda *a, **k: httpx.Response(
+        200, json={"ok": True, "courses": 0, "linked_to_existing": 1, "paused": 1}))
+    msg = semestra.push(maths)["message"]
+    assert "linked to a course you had entered by hand" in msg and "paused in Semestra" in msg
