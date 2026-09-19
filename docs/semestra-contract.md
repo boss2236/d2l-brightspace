@@ -80,8 +80,14 @@ redirects, so the key can't be forwarded to another host.
 3. **Upsert, scoped to the key's user.** Manual use and the connector must coexist: a student can type courses in
    by hand, connect later, and pause syncing per course.
    - Course: match by (`user_id`, `external_id`). If there's no match, first **link to a course the student entered
-     by hand** (same name, or exactly one unlinked course whose name contains the course `code`); only if none or
-     several match, create a new one. Keep the student's own name and credits afterwards.
+     by hand**, comparing names with case, spaces and punctuation removed, so `MATH 1030 - Calculus I`,
+     `MATH1030 Calculus I` and `Calculus I` all reach the same course. Do it in two passes over the body:
+     1. the whole name, or the name without its leading course `code`;
+     2. for whatever is still unmatched, one unlinked course whose name merely contains the `code`
+        (`MATH1030 with Dr Y`).
+     Two passes so a section that only matches on the code can't take a row another course names exactly. Each
+     match must be the **single** unlinked candidate; if none or several match, create a new course — never a
+     wrong merge. Keep the student's own name and credits afterwards.
    - A course the student **paused** (`sync_enabled = false`) is skipped entirely and counted as `paused`.
    - Categories and items: match by name within the course. Update weight, `max_points` and `achieved_points`;
      add new ones. **Don't delete** categories or items the student added in Semestra, or ones Brightspace no
