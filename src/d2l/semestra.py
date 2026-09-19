@@ -199,12 +199,15 @@ def push(db=None) -> dict:
             info = r.json()
         except ValueError:
             info = {}
+        # report what Semestra actually stored, not just what was sent
+        stored = info.get("courses", len(data["courses"]))
         notes = []
         if info.get("linked_to_existing"):
             notes.append(f"{info['linked_to_existing']} linked to a course you had entered by hand")
         if info.get("paused"):
             notes.append(f"{info['paused']} paused in Semestra, left unchanged")
-        return _record(db, True, f"sent {len(data['courses'])} course(s)" + (" · " + " · ".join(notes) if notes else ""))
+        return _record(db, True, f"updated {stored} of {len(data['courses'])} course(s)"
+                       + (" · " + " · ".join(notes) if notes else ""))
     finally:
         if own:
             ctx.__exit__(None, None, None)

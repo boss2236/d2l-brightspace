@@ -85,10 +85,10 @@ def test_semestra_push_sends_key_and_minimal_body_without_redirects(maths, monke
 
     def fake_post(url, json=None, headers=None, timeout=None, follow_redirects=True):
         seen.update(url=url, body=json, headers=headers, follow=follow_redirects)
-        return httpx.Response(200, json={"ok": True})
+        return httpx.Response(200, json={"ok": True, "courses": 1})
     monkeypatch.setattr(semestra.httpx, "post", fake_post)
     r = semestra.push(maths)
-    assert r["ok"] and r["message"] == "sent 1 course(s)"
+    assert r["ok"] and r["message"] == "updated 1 of 1 course(s)"
     assert seen["headers"]["Authorization"] == "Bearer sk_semestra_" + "a" * 30 and seen["follow"] is False
     body = json.dumps(seen["body"])
     assert seen["body"]["courses"][0]["external_id"] == "d2l:school.example.com:1"
@@ -163,4 +163,5 @@ def test_semestra_push_reports_linked_and_paused_courses(maths, monkeypatch):
     monkeypatch.setattr(semestra.httpx, "post", lambda *a, **k: httpx.Response(
         200, json={"ok": True, "courses": 0, "linked_to_existing": 1, "paused": 1}))
     msg = semestra.push(maths)["message"]
+    assert msg.startswith("updated 0 of 1 course(s)")
     assert "linked to a course you had entered by hand" in msg and "paused in Semestra" in msg
