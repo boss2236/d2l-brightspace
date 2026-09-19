@@ -82,9 +82,10 @@ def main() -> None:
     ap_.add_argument("--open", action="store_true", help="open it in the browser")
 
     se2 = sub.add_parser("semestra", help="send grades to Semestra: export its import JSON, or push to a connector")
-    se2.add_argument("action", choices=["export", "push", "status"])
+    se2.add_argument("action", choices=["export", "push", "status", "credits"])
     se2.add_argument("--course", help="export: code, name fragment or id (default: every course with grades)")
     se2.add_argument("--credits", type=float, help="export: credit hours to put in the course (default 3)")
+    se2.add_argument("set", nargs="*", help="credits: CODE=HOURS pairs, e.g. CHEM1011=1 MATH1030=3")
 
     tk = sub.add_parser("token", help="show or rotate the API token used by serve/app (REST, HTTP MCP, public link)")
     tk.add_argument("--rotate", action="store_true", help="replace it; existing links and n8n credentials stop working")
@@ -189,6 +190,13 @@ def _local(args) -> None:
                         exported += 1
                 if not exported:
                     raise SystemExit("nothing to export yet (no course with published grade items)")
+            elif args.action == "credits":
+                for pair in args.set:
+                    code, _, value = pair.partition("=")
+                    for cid in query.course_ids(db, code):
+                        semestra.set_credits(db, cid, float(value) if value else None)
+                for p in semestra.all_payloads(db):
+                    print(f"{p['code']}-{p['section']:<3} {p['credits']:>4g} credits  {p['name']}")
             elif args.action == "push":
                 r = semestra.push(db)
                 print(("✓ " if r["ok"] else "✕ ") + r["message"])

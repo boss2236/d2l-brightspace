@@ -216,3 +216,24 @@ def test_env_writer_adds_one_comment_per_setting(tmp_path, monkeypatch):
     assert text.count("SEMESTRA_URL=") == 1 and text.count("SEMESTRA_KEY=") == 1
     assert text.count("# Semestra connector key") == 1                       # not repeated on every write
     assert "bearer token for /api and /mcp" not in text                      # the right note for the right setting
+
+
+def test_credit_hours_can_be_set_per_course(maths):
+    store.update_courses(maths, [{**course(1, "MATH_1030_1_1268", "MATH1030 Calculus I"), "short": "MATH1030 Calculus I"},
+                                 {**course(2, "CHEM_1011_1_1268", "CHEM1011 Chemistry Lab"), "short": "CHEM1011 Lab"}])
+    sent = {c["code"]: c["payload"]["course"]["credits"] for c in semestra.body(maths)["courses"]}
+    assert sent == {"MATH1030": 3.0, "CHEM1011": 3.0}          # Brightspace publishes none, so 3 by default
+    warning = " ".join(semestra.all_payloads(maths)[0]["warnings"])
+    assert "credit hours unknown" in warning and "labs are usually 1" in warning
+
+    semestra.set_credits(maths, 2, 1)                           # the lab is one credit
+    sent = {c["code"]: c["payload"]["course"]["credits"] for c in semestra.body(maths)["courses"]}
+    assert sent == {"MATH1030": 3.0, "CHEM1011": 1.0}
+    assert "credit hours unknown" not in " ".join(
+        next(p for p in semestra.all_payloads(maths) if p["course_id"] == 2)["warnings"])
+
+    semestra.set_credits(maths, 2, None)                        # cleared → back to the default
+    assert semestra.credits_map(maths) == {}
+    for bad in (0, -1, 500):
+        with pytest.raises(ValueError):
+            semestra.set_credits(maths, 2, bad)

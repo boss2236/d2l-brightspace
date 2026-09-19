@@ -15,6 +15,7 @@ import os
 import shutil
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import notify, public, query, server, store, ui
@@ -143,9 +144,12 @@ def semestra_view() -> dict:
     from . import semestra
     with store.connect() as db:
         last = semestra.last_push(db)
+    with store.connect() as db:
+        courses = [{"id": p["course_id"], "code": p["code"], "section": p["section"], "name": p["name"],
+                    "credits": p["credits"]} for p in semestra.all_payloads(db)]
     return {"configured": semestra.configured(), "url": os.environ.get("SEMESTRA_URL", ""),
             "has_key": bool(os.environ.get("SEMESTRA_KEY")), "last": last,
-            "poll_seconds": SEMESTRA_POLL_SECONDS}
+            "poll_seconds": SEMESTRA_POLL_SECONDS, "courses": courses}
 
 
 def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
@@ -222,6 +226,18 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
             server._set_env("SEMESTRA_KEY", key)
         return JSONResponse({"ok": True})
 
+    @route("/ui/semestra/credits", methods=("POST",))
+    async def set_credits(request):
+        from . import semestra
+        body = await request.json()
+        try:
+            value = body.get("credits")
+            with store.connect() as db:
+                semestra.set_credits(db, int(body["course_id"]), None if value in (None, "") else float(value))
+        except (KeyError, TypeError, ValueError) as e:
+            return JSONResponse({"ok": False, "message": str(e)}, status_code=400)
+        return JSONResponse({"ok": True})
+
     @route("/ui/semestra/push", methods=("POST",))
     async def push_semestra(request):
         from . import semestra
@@ -262,7 +278,8 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
             return JSONResponse(await add_client(key))
         return await guard(request, fn)
 
-    return Starlette(routes=[index, status, set_public, check_public, rotate, set_semestra, push_semestra, sync, login,
+    return Starlette(routes=[index, status, set_public, check_public, rotate, set_semestra, set_credits,
+                             push_semestra, sync, login,
                              Route("/ui/clients/{key}", add, methods=["POST"]),
                              Route("/files/{id:int}", open_file, methods=["GET"]),
                              Route("/files/{id:int}/{rest:path}", open_asset, methods=["GET"]),
@@ -287,12 +304,16 @@ async def serve_asset(topic_id: int, rel: str):
     return FileResponse(target)
 
 
-SEMESTRA_POLL_SECONDS = 120
+SEMESTRA_POLL_SECONDS = int(os.environ.get("D2L_SEMESTRA_POLL", "20"))
+FRESH_MINUTES = 15                                   # data this new is pushed as-is instead of re-fetching
 
 
 async def watch_semestra(jobs: dict[str, Job]) -> None:
-    """Semestra can't reach this computer, so ask it every couple of minutes whether "Sync now" was pressed there.
-    When it was, run a full sync — which pulls from Brightspace and pushes, clearing the request."""
+    """Semestra can't reach this computer, so the app asks it — every 20 seconds — whether "Sync now" was pressed.
+
+    If the Brightspace data is only minutes old, the answer is a push (a second or two). Otherwise it runs a full
+    sync first, which pulls from Brightspace and pushes at the end. Either way the push clears the request.
+    """
     from . import semestra
     while True:
         await asyncio.sleep(SEMESTRA_POLL_SECONDS)
@@ -306,8 +327,16 @@ async def watch_semestra(jobs: dict[str, Job]) -> None:
                 if not requested or requested == handled:
                     continue
                 store.set_meta(db, "semestra_last_request", requested)
-            print(f"Semestra asked for a sync at {requested} — syncing")
-            await jobs["sync"].run("sync")
+                last_sync = store.get_meta(db, "last_sync")
+            fresh = bool(last_sync) and (datetime.now(timezone.utc)
+                                         - datetime.fromisoformat(last_sync)).total_seconds() < FRESH_MINUTES * 60
+            if fresh:
+                print(f"Semestra asked for a sync at {requested} — data is fresh, sending it now")
+                r = await asyncio.to_thread(semestra.push)
+                print("  ", r["message"])
+            else:
+                print(f"Semestra asked for a sync at {requested} — fetching from Brightspace first")
+                await jobs["sync"].run("sync")
         except Exception as e:                       # a hiccup here must never stop the app
             print("semestra watch:", e.__class__.__name__, e)
 

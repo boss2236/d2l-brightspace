@@ -62,6 +62,8 @@ redirects, so the key can't be forwarded to another host.
 }
 ```
 
+- `credits` is what the student set in the connector, or 3: Brightspace publishes no credit hours. A receiver
+  should keep the student's own value once a course exists.
 - `payload` validates against Semestra's existing `importPayloadSchema` (`src/shared/lib/importFormat.ts`).
   `achieved_points` is `null` until a grade is released.
 - **Every course the student is currently enrolled in is sent**, including ones with no grades published yet; those

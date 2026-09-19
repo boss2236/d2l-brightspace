@@ -140,6 +140,8 @@ table.kv td:first-child { color: var(--muted); white-space: nowrap; width: 1%; }
 .form input:not([type=checkbox]) { width: 100%; font: 13.5px ui-monospace, Menlo, monospace; }
 ol.setup { padding-left: 18px; } ol.setup li { margin-bottom: 4px; }
 table.rubric th { text-align: start; font-size: 12px; color: var(--muted); padding: 4px 10px 4px 0; }
+details.credits { margin: 4px 0 10px; font-size: 14px; }
+details.credits summary { cursor: pointer; }
 .health.ok { color: var(--good); } .health.bad { color: var(--crit); }
 .note { border-left: 3px solid var(--warn); background: var(--card); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
 @media (max-width: 640px) { h1 { font-size: 20px; } .cards { grid-template-columns: minmax(0, 1fr); } select { max-width: none; } }
@@ -382,6 +384,12 @@ async function saveSemestra(btn) {
   editing = false; await refresh(true);
   if (!r.ok) alertBox(r.message); else hideAlert();
 }
+async function setCredits(courseId, input) {
+  const r = await api("/ui/semestra/credits", {course_id: courseId, credits: input.value});
+  if (!r.ok) { alertBox(r.message); return; }
+  input.style.borderColor = "var(--good)";
+  setTimeout(() => { input.style.borderColor = ""; }, 1200);
+}
 async function pushSemestra(btn) {
   btn.disabled = true; btn.textContent = "Sending…";
   await api("/ui/semestra/push", {}); refresh(true);
@@ -520,7 +528,8 @@ function connectHtml() {
       <p class="muted small">Send your courses and grades to Semestra after every sync — every course you're enrolled
       in, even before grades are posted. In Semestra, create a connector key (Settings → Connectors), then paste its
       address and key here. Pressing <b>Sync now</b> in Semestra also works: this app checks every
-      ${Math.round((ST.semestra.poll_seconds || 120) / 60)} min and then pulls fresh data. Only courses, grade
+      ${ST.semestra.poll_seconds || 20}s and answers straight away (fetching from Brightspace first if the data
+      isn't fresh). Only courses, grade
       structure, your grades and deadlines are sent: never announcements, files or your login.</p></div>
       ${ST.semestra.configured ? '<span class="pill on">● Connected</span>' : '<span class="pill off">● Not set up</span>'}</div>
     <div class="form">
@@ -531,6 +540,13 @@ function connectHtml() {
     </div>
     <p><button class="btn primary" onclick="saveSemestra(this)">Save</button>
        ${ST.semestra.configured ? '<button class="btn" onclick="pushSemestra(this)">Send now</button>' : ""}</p>
+    ${(ST.semestra.courses || []).length ? `<details class="credits"><summary>Credit hours per course
+        <span class="muted small">— Brightspace doesn't publish them, so each course is sent as 3 unless you set it
+        (labs are usually 1). The GPA is credit-weighted, so this matters.</span></summary>
+      <div class="list">${ST.semestra.courses.map(c => `<div class="row"><span class="title">${esc(c.code)}
+          <span class="muted small">· ${esc(c.name)}</span></span>
+        <span class="right"><input type="number" min="0.5" max="100" step="0.5" value="${c.credits}"
+          style="width:84px" onchange="setCredits(${c.id}, this)"> credits</span></div>`).join("")}</div></details>` : ""}
     ${ST.semestra.last ? `<p class="small ${ST.semestra.last.ok ? "health ok" : "health bad"}">${ST.semestra.last.ok ? "✓" : "✕"}
         ${esc(ST.semestra.last.message)} <span class="muted">· ${esc(new Date(ST.semestra.last.at).toLocaleString())}</span></p>` : ""}
     <p class="small muted">Prefer copying by hand? Each course on the <b>Grades</b> tab has a <b>Copy for Semestra</b> button for Semestra's Import page.</p>

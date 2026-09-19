@@ -152,6 +152,11 @@ systems' documented interfaces but hasn't been run on real machines yet, so repo
 
 ## Semestra
 
+**Credit hours:** Brightspace doesn't publish them, so every course is sent as 3 unless you set it — in the app's
+**Connect AI → Semestra → Credit hours per course**, or with `d2l semestra credits CHEM1011=1`. You can also set it
+in Semestra (Edit course); either way a sync never overwrites your value. Labs are usually 1 credit and the GPA is
+credit-weighted, so it's worth setting.
+
 Every course you're enrolled in is sent, including ones with no grades posted yet (they arrive without categories
 so you can still see and plan them). Pressing **Sync now** in Semestra also works: the app checks every two minutes
 and then pulls fresh data from Brightspace — no public link involved. Courses with grades have a **Copy for

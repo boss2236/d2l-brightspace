@@ -125,12 +125,34 @@ def copyable(p: dict | None) -> bool:
     return bool(p and p["categories"])
 
 
+def credits_map(db) -> dict[str, float]:
+    """Credit hours you set per course. Brightspace publishes none, so without this every course counts as 3 —
+    wrong for 1-credit labs, and the GPA is credit-weighted."""
+    return {str(k): float(v) for k, v in (store.get_meta(db, "semestra_credits", {}) or {}).items()}
+
+
+def set_credits(db, course_id: int, value: float | None) -> None:
+    current = credits_map(db)
+    if value is None:
+        current.pop(str(course_id), None)
+    else:
+        if not (0 < float(value) <= 100):
+            raise ValueError("credit hours must be between 0 and 100")
+        current[str(course_id)] = float(value)
+    store.set_meta(db, "semestra_credits", current)
+    db.commit()
+
+
 def all_payloads(db) -> list[dict]:
     """Every current course, with its warnings and identifiers — the dashboard and push use this."""
-    out = []
+    out, credits = [], credits_map(db)
     for c in query.courses(db):
-        p, w = payload(db, c["id"])
-        out.append({"course_id": c["id"], "code": c["code"], "section": c["section"], "payload": p, "warnings": w})
+        p, w = payload(db, c["id"], credits.get(str(c["id"])))
+        if str(c["id"]) not in credits:
+            w = w + ["credit hours unknown (Brightspace doesn't publish them): sent as 3 — set the real value "
+                     "here or in Semestra, labs are usually 1"]
+        out.append({"course_id": c["id"], "code": c["code"], "section": c["section"], "name": c["name"],
+                    "credits": credits.get(str(c["id"]), 3.0), "payload": p, "warnings": w})
     return out
 
 
