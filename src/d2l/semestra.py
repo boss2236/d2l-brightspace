@@ -57,16 +57,23 @@ def term_name(start: str | None) -> str | None:
 
 
 def payload(db, course_id: int, credits: float | None = None) -> tuple[dict | None, list[str]]:
-    """Semestra import JSON for one course, plus warnings about anything adapted or left out. (None, [reason]) if the
-    course has nothing Semestra can use yet."""
+    """Semestra import JSON for one course, plus warnings about anything adapted or left out.
+
+    Every course you're enrolled in is included, even before any grades are published — Semestra can then show it and
+    you can plan around it, and the categories arrive on a later sync. `categories` is empty in that case, which
+    Semestra's Import *page* doesn't accept (it wants at least one), so `copyable()` filters those out.
+    """
     c = next(iter(store.rows(db, "SELECT * FROM courses WHERE id = ?", int(course_id))), None)
     if not c:
         return None, [f"no course {course_id}"]
     warnings: list[str] = []
     cats = store.rows(db, "SELECT name, weight FROM grade_categories WHERE course_id = ? ORDER BY id", int(course_id))
     items = store.rows(db, "SELECT * FROM grades WHERE course_id = ? ORDER BY id", int(course_id))
+    empty = {"course": {"name": re.sub(r"\s+", " ", c["short"] or c["name"]).strip(),
+                        "term": term_name(c["start"]), "credits": float(credits or 3)},
+             "categories": []}
     if not items:
-        return None, ["no grade items published in this course yet"]
+        return empty, ["no grade items published in this course yet — sent so you can see and plan it"]
 
     buckets: dict[str, list[dict]] = {k["name"]: [] for k in cats}
     weights = {k["name"]: k["weight"] or 0 for k in cats}
@@ -104,7 +111,7 @@ def payload(db, course_id: int, credits: float | None = None) -> tuple[dict | No
             continue
         categories.append({"name": name, "weight": weights[name], "items": rows})
     if not categories:
-        return None, warnings + ["nothing gradable to import"]
+        return empty, warnings + ["nothing gradable yet — sent without categories"]
     total = sum(k["weight"] for k in categories)
     if categories and abs(total - 100) > 0.5:
         warnings.append(f"category weights add up to {total:g}%, not 100% — check them in Semestra")
@@ -113,8 +120,13 @@ def payload(db, course_id: int, credits: float | None = None) -> tuple[dict | No
             "categories": categories}, warnings
 
 
+def copyable(p: dict | None) -> bool:
+    """True when a payload can be pasted into Semestra's Import page (it requires at least one category)."""
+    return bool(p and p["categories"])
+
+
 def all_payloads(db) -> list[dict]:
-    """Every current course that has grades, with its warnings and identifiers — the dashboard and push use this."""
+    """Every current course, with its warnings and identifiers — the dashboard and push use this."""
     out = []
     for c in query.courses(db):
         p, w = payload(db, c["id"])
@@ -219,6 +231,37 @@ def _record(db, ok: bool, message: str) -> dict:
         store.set_meta(db, "semestra_last_push", result)
         db.commit()
     return result
+
+
+def poll(db=None) -> dict | None:
+    """Ask Semestra whether "Sync now" was pressed there. Returns its answer, or None when not configured/reachable.
+    Semestra can't reach this computer, so the connector checks in instead — no public link needed."""
+    url, key = _settings()
+    if not (url and key):
+        return None
+    try:
+        check_url(url)
+        r = httpx.post(url, json={"version": CONTRACT_VERSION, "action": "poll"}, timeout=20, follow_redirects=False,
+                       headers={"Authorization": f"Bearer {key}", "X-Connector": "d2l-brightspace/1"})
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def sync_requested(db) -> bool:
+    """True when Semestra is waiting for fresh data (and this request hasn't been handled yet)."""
+    answer = poll()
+    at = (answer or {}).get("sync_requested_at")
+    if not at:
+        return False
+    return at != store.get_meta(db, "semestra_last_request")
+
+
+def mark_request_handled(db, answer_at: str) -> None:
+    store.set_meta(db, "semestra_last_request", answer_at)
+    db.commit()
 
 
 def last_push(db) -> dict | None:

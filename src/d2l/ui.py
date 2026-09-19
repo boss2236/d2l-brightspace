@@ -265,7 +265,7 @@ function grades() {
     gs.forEach(g => (cats[g.category || "Other"] ||= []).push(g));
     if (cats.Other) { const o = cats.Other; delete cats.Other; cats.Other = o; }     // named categories first
     const sem = (DATA.semestra || {})[id] || {};
-    const semBtn = sem.payload ? `<button class="btn small" style="margin-left:auto"
+    const semBtn = sem.payload && sem.payload.categories.length ? `<button class="btn small" style="margin-left:auto"
         title="${esc((sem.warnings || []).join("\\n") || "Paste into Semestra → Import")}"
         onclick="copyText(JSON.stringify(DATA.semestra['${id}'].payload, null, 2), this)">Copy for Semestra${sem.warnings.length ? " ⓘ" : ""}</button>` : "";
     return `<div class="group"><h4>${chip(+id)} ${esc((byId[id] || {}).name)}
@@ -517,9 +517,11 @@ function connectHtml() {
 
   <section class="panel">
     <div class="phead"><div><h3>Semestra</h3>
-      <p class="muted small">Send your courses and grades to Semestra after every sync. In Semestra, create a connector
-      key (Settings → Connectors), then paste its address and key here. Only courses, grade structure, your grades and
-      deadlines are sent: never announcements, files or your login.</p></div>
+      <p class="muted small">Send your courses and grades to Semestra after every sync — every course you're enrolled
+      in, even before grades are posted. In Semestra, create a connector key (Settings → Connectors), then paste its
+      address and key here. Pressing <b>Sync now</b> in Semestra also works: this app checks every
+      ${Math.round((ST.semestra.poll_seconds || 120) / 60)} min and then pulls fresh data. Only courses, grade
+      structure, your grades and deadlines are sent: never announcements, files or your login.</p></div>
       ${ST.semestra.configured ? '<span class="pill on">● Connected</span>' : '<span class="pill off">● Not set up</span>'}</div>
     <div class="form">
       <label>Connector address<input id="sem_url" ${'oninput="editing = true" onfocus="editing = true"'} value="${esc(ST.semestra.url)}"

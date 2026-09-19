@@ -58,9 +58,48 @@ def test_semestra_payload_matches_semestras_import_schema(maths):
             assert i["achieved_points"] is None or i["achieved_points"] >= 0
 
 
-def test_semestra_payload_needs_grades(db):
+def test_course_without_grades_is_still_sent_but_not_copyable(db):
     store.update_courses(db, [course(2, "CHEM_1", "Chemistry")])
-    assert semestra.payload(db, 2) == (None, ["no grade items published in this course yet"])
+    p, warnings = semestra.payload(db, 2)
+    assert p["course"]["name"] == "Chemistry" and p["categories"] == []
+    assert not semestra.copyable(p)                       # Semestra's Import page needs a category
+    assert "no grade items published" in warnings[0]
+
+
+def test_every_enrolled_course_is_in_a_push(maths):
+    store.update_courses(maths, [course(1, "MATH_1030_1_1268", "MATH1030 Calculus I"),
+                                 course(2, "CHEM_1010_1_1268", "CHEM1010 Chemistry")])
+    sent = semestra.body(maths)["courses"]
+    assert {c["code"] for c in sent} == {"MATH1030", "CHEM1010"}
+    counts = sorted(len(c["payload"]["categories"]) for c in sent)
+    assert counts[0] == 0 and counts[1] > 0          # the course without grades travels too, with no categories
+
+
+def test_poll_asks_semestra_whether_a_sync_was_requested(maths, monkeypatch):
+    monkeypatch.setenv("SEMESTRA_URL", "https://semestra.example/api/connector")
+    monkeypatch.setenv("SEMESTRA_KEY", "sk_semestra_" + "d" * 30)
+    seen = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None, follow_redirects=True):
+        seen.update(body=json, headers=headers)
+        return httpx.Response(200, json={"ok": True, "sync_requested_at": "2026-09-20T10:00:00Z"})
+    monkeypatch.setattr(semestra.httpx, "post", fake_post)
+    assert semestra.poll()["sync_requested_at"] == "2026-09-20T10:00:00Z"
+    assert seen["body"] == {"version": 1, "action": "poll"}          # a question, never data
+    assert seen["headers"]["Authorization"].startswith("Bearer sk_semestra_")
+    assert semestra.sync_requested(maths) is True
+    semestra.mark_request_handled(maths, "2026-09-20T10:00:00Z")
+    assert semestra.sync_requested(maths) is False                    # the same request isn't handled twice
+
+
+def test_poll_is_quiet_when_not_configured_or_unreachable(maths, monkeypatch):
+    monkeypatch.delenv("SEMESTRA_URL", raising=False)
+    monkeypatch.delenv("SEMESTRA_KEY", raising=False)
+    assert semestra.poll() is None and semestra.sync_requested(maths) is False
+    monkeypatch.setenv("SEMESTRA_URL", "https://semestra.example/api/connector")
+    monkeypatch.setenv("SEMESTRA_KEY", "sk_semestra_" + "e" * 30)
+    monkeypatch.setattr(semestra.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("down")))
+    assert semestra.poll() is None
 
 
 @pytest.mark.parametrize("url, ok", [
@@ -165,3 +204,15 @@ def test_semestra_push_reports_linked_and_paused_courses(maths, monkeypatch):
     msg = semestra.push(maths)["message"]
     assert msg.startswith("updated 0 of 1 course(s)")
     assert "linked to a course you had entered by hand" in msg and "paused in Semestra" in msg
+
+
+def test_env_writer_adds_one_comment_per_setting(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text("D2L_BASE_URL=https://x\n")
+    for _ in range(3):
+        server._set_env("SEMESTRA_URL", "https://semestra.example/api/connector")
+        server._set_env("SEMESTRA_KEY", "sk_semestra_" + "f" * 30)
+    text = (tmp_path / ".env").read_text()
+    assert text.count("SEMESTRA_URL=") == 1 and text.count("SEMESTRA_KEY=") == 1
+    assert text.count("# Semestra connector key") == 1                       # not repeated on every write
+    assert "bearer token for /api and /mcp" not in text                      # the right note for the right setting

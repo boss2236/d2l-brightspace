@@ -22,7 +22,7 @@ Brightspace ──(student's own login, on their computer)──▶ d2l-brightsp
 ## 2. Request
 
 ```
-POST <connector address>            e.g. https://<project>.supabase.co/functions/v1/connector-ingest
+POST <connector address>            e.g. https://<semestra-site>/api/connector   (forwarded to the edge function)
 Authorization: Bearer <connector key>
 Content-Type: application/json
 X-Connector: d2l-brightspace/1
@@ -64,8 +64,10 @@ redirects, so the key can't be forwarded to another host.
 
 - `payload` validates against Semestra's existing `importPayloadSchema` (`src/shared/lib/importFormat.ts`).
   `achieved_points` is `null` until a grade is released.
-- Only courses with at least one gradable item are sent. A course missing from a later push means it has no grades
-  yet or its term ended. It is **not** a request to delete it.
+- **Every course the student is currently enrolled in is sent**, including ones with no grades published yet; those
+  arrive with `categories: []` so the course can be shown and planned, and the categories follow on a later push.
+  (Semestra's Import *page* still requires at least one category; this is the connector path.)
+- A course missing from a later push means its term ended. It is **not** a request to delete it.
 
 ## 3. What the endpoint must do
 
@@ -87,6 +89,19 @@ redirects, so the key can't be forwarded to another host.
 5. **Answer** `200 {"ok": true, "courses": <n updated>, "linked_to_existing": <n>, "paused": <n>}`.
 
 Rate-limit per key (e.g. 60 requests/hour). The connector syncs about 3× a day.
+
+### Polling: has the student asked for a sync?
+
+Semestra can't reach the student's computer, so the connector asks:
+
+```
+POST <connector address>        {"version": 1, "action": "poll"}
+→ 200 {"ok": true, "sync_requested_at": "2026-09-20T10:00:00Z" | null, "last_push_at": "…"}
+```
+
+When `sync_requested_at` is newer than the last one handled, the connector pulls fresh data from Brightspace and
+pushes; the push clears the request. The connector polls every couple of minutes while it's running, so "Sync now"
+in Semestra takes effect within a few minutes and needs no public link.
 
 ## 4. Responses the connector understands
 

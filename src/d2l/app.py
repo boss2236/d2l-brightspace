@@ -144,7 +144,8 @@ def semestra_view() -> dict:
     with store.connect() as db:
         last = semestra.last_push(db)
     return {"configured": semestra.configured(), "url": os.environ.get("SEMESTRA_URL", ""),
-            "has_key": bool(os.environ.get("SEMESTRA_KEY")), "last": last}
+            "has_key": bool(os.environ.get("SEMESTRA_KEY")), "last": last,
+            "poll_seconds": SEMESTRA_POLL_SECONDS}
 
 
 def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
@@ -286,6 +287,31 @@ async def serve_asset(topic_id: int, rel: str):
     return FileResponse(target)
 
 
+SEMESTRA_POLL_SECONDS = 120
+
+
+async def watch_semestra(jobs: dict[str, Job]) -> None:
+    """Semestra can't reach this computer, so ask it every couple of minutes whether "Sync now" was pressed there.
+    When it was, run a full sync — which pulls from Brightspace and pushes, clearing the request."""
+    from . import semestra
+    while True:
+        await asyncio.sleep(SEMESTRA_POLL_SECONDS)
+        try:
+            if not semestra.configured() or jobs["sync"].state == "running":
+                continue
+            answer = await asyncio.to_thread(semestra.poll)
+            requested = (answer or {}).get("sync_requested_at")
+            with store.connect() as db:
+                handled = store.get_meta(db, "semestra_last_request")
+                if not requested or requested == handled:
+                    continue
+                store.set_meta(db, "semestra_last_request", requested)
+            print(f"Semestra asked for a sync at {requested} — syncing")
+            await jobs["sync"].run("sync")
+        except Exception as e:                       # a hiccup here must never stop the app
+            print("semestra watch:", e.__class__.__name__, e)
+
+
 async def serve_file(topic_id: int, download: bool):
     """A course file from the local copy. Not downloaded yet (videos, images, anything new since the last sync)?
     Fetch it from Brightspace first with the saved login — the same thing `d2l get <id>` does."""
@@ -334,6 +360,7 @@ def run(open_browser: bool = False) -> None:
             await asyncio.sleep(2)
             await link.apply(dict(public_settings()))
         asyncio.create_task(start_link())
+        asyncio.create_task(watch_semestra(jobs))
         print(f"Brightspace app  http://127.0.0.1:{UI_PORT}\nMCP + REST       http://127.0.0.1:{MCP_PORT}")
         if open_browser:
             import webbrowser

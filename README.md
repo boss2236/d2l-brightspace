@@ -152,7 +152,10 @@ systems' documented interfaces but hasn't been run on real machines yet, so repo
 
 ## Semestra
 
-Every course with grades has a **Copy for Semestra** button on the Grades tab. It produces the exact JSON Semestra's
+Every course you're enrolled in is sent, including ones with no grades posted yet (they arrive without categories
+so you can still see and plan them). Pressing **Sync now** in Semestra also works: the app checks every two minutes
+and then pulls fresh data from Brightspace — no public link involved. Courses with grades have a **Copy for
+Semestra** button on the Grades tab. It produces the exact JSON Semestra's
 Import page accepts, with notes on anything adapted (uncategorised items placed by name, calculated totals left
 out). To have it happen automatically, create a connector key in Semestra, then paste its address and key into
 **Connect AI → Semestra**. After every sync the app sends courses, grade structure, your grades and deadlines, and
