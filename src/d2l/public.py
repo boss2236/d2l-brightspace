@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The public link that cloud AIs (claude.ai, ChatGPT…) use to reach the MCP server on this laptop.
 
 Three ways, picked in the app's Connect AI tab (or `d2l public …`):
@@ -37,6 +38,10 @@ class ConfigError(ValueError):
 def normalise(cfg: dict, saved: dict) -> dict:
     """Validate what the page sent; blank secret fields keep the saved value. Raises ConfigError with a readable
     message for anything that would only fail later and silently."""
+    for field in ("cf_host", "cf_token", "custom_url"):
+        v = cfg.get(field)
+        if isinstance(v, str) and not v.isprintable():
+            raise ConfigError(f"{field} can't contain line breaks or control characters")
     mode = cfg.get("mode", "off")
     if mode not in MODES:
         raise ConfigError(f"unknown mode {mode!r}")

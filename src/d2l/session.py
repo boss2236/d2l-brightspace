@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Browser session for Brightspace: you log in once by hand, the profile keeps you logged in.
 
 Brightspace usually sits behind the university's single sign-on, so there is no password to automate here — and
@@ -34,7 +35,7 @@ def login(timeout_min: int = 10) -> None:
         print("Sign in in the browser window (SSO + MFA as usual). Waiting for the Brightspace home page…")
         page.wait_for_url("**/d2l/home**", timeout=timeout_min * 60_000)
         page.wait_for_timeout(2000)
-        ctx.storage_state(path=str(STATE))
+        _save(ctx)
         print(f"signed in; session saved to {STATE.relative_to(ROOT)}")
         ctx.close()
 
@@ -73,9 +74,13 @@ def _renew(page) -> bool:
 
 
 def _save(ctx) -> None:
-    """Write the refreshed cookies atomically, so a crash mid-write can't lose the login."""
+    """Write the refreshed cookies atomically and owner-only, so a crash can't lose the login and other accounts on
+    this computer can't read it."""
+    STATE.parent.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(STATE.parent, 0o700)
     tmp = STATE.with_suffix(".tmp")
     ctx.storage_state(path=str(tmp))
+    os.chmod(tmp, 0o600)
     tmp.replace(STATE)
 
 

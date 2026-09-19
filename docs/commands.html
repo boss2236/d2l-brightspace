@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>d2l commands</title>
 <style>
@@ -62,7 +63,7 @@ footer { color: var(--muted); font-size: 12.5px; margin-top: 40px; }
 To connect an AI or n8n, see <a href="connect-ai.html">Connect your AI</a>.</p>
 <nav class="toc">
   <a href="#daily">Daily use</a><a href="#sync">sync</a><a href="#due">due</a><a href="#new">new</a><a href="#search">search</a>
-  <a href="#show">show / read</a><a href="#ui">ui</a><a href="#app">app</a><a href="#ai">mcp / serve</a><a href="#notify">notify</a>
+  <a href="#show">show / read</a><a href="#ui">ui</a><a href="#app">app</a><a href="#ai">mcp / serve</a><a href="#semestra">semestra</a><a href="#token">token</a><a href="#notify">notify</a>
   <a href="#schedule">schedule</a><a href="#login">login / courses</a><a href="#setup">Setup</a><a href="#config">Settings</a>
   <a href="#files">Files</a><a href="#trouble">Troubleshooting</a>
 </nav>
@@ -137,7 +138,10 @@ uv run d2l show grades --course math1030
 uv run d2l show assignments --open
 uv run d2l show files --course chem1010
 uv run d2l read 4026138          <span class="c"># id from `show files` or `search`</span>
-uv run d2l get 3972581           <span class="c"># download one file (videos too) and print where it is</span></pre><button onclick="copy(this)">copy</button></div>
+uv run d2l get 3972581           <span class="c"># download one file (videos too) and print where it is</span></pre>
+  <p>The <b>Assignments</b> tab shows instructor feedback: the comment, the rubric score for each criterion, and
+     feedback files. Scanned PDFs are read with OCR when <code>tesseract</code> and <code>pdftoppm</code> are
+     installed, so their text is searchable too.</p><button onclick="copy(this)">copy</button></div>
 </div>
 
 <div class="cmd" id="ui">
@@ -165,6 +169,23 @@ uv run d2l schedule install --serve   <span class="c"># always on + launcher ent
      client is in <a href="connect-ai.html">Connect your AI</a>.</p>
   <div class="shell"><pre>claude mcp add -s user brightspace -- uv run --directory "$PWD" d2l mcp
 uv run d2l serve                  <span class="c"># http://127.0.0.1:8765/mcp and /api/*</span></pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="semestra">
+  <h3><span class="name">semestra</span></h3>
+  <p>Hands your grades to Semestra, a grade planner. <code>export</code> prints the JSON its Import page accepts, with
+     notes about anything adapted on stderr. <code>push</code> sends every course to your Semestra connector; once
+     it's set up in the app, this also happens after each sync.</p>
+  <div class="shell"><pre>uv run d2l semestra export --course MATH1030 &gt; math.json
+uv run d2l semestra push
+uv run d2l semestra status</pre><button onclick="copy(this)">copy</button></div>
+</div>
+
+<div class="cmd" id="token">
+  <h3><span class="name">token</span></h3>
+  <p>Shows or replaces the API token that protects the REST API, HTTP MCP and the public link. Replacing it
+     immediately breaks old connector links and n8n credentials. The app's <b>New token</b> button does the same.</p>
+  <div class="shell"><pre>uv run d2l token --rotate</pre><button onclick="copy(this)">copy</button></div>
 </div>
 
 <div class="cmd" id="notify">
@@ -210,6 +231,8 @@ uv run d2l sync</pre><button onclick="copy(this)">copy</button></div>
   <tr><td><code>D2L_TZ</code></td><td>Time zone for dates, e.g. <code>Asia/Qatar</code> (default: this computer's)</td></tr>
   <tr><td><code>D2L_COURSE_CODE_REGEX</code></td><td>Only course codes matching this count as courses, if your school dates its service pages too</td></tr>
   <tr><td><code>D2L_COURSES_INCLUDE</code>, <code>D2L_COURSES_EXCLUDE</code></td><td>Course ids (from <code>d2l courses --all</code>) to always show or always hide</td></tr>
+  <tr><td><code>D2L_OCR</code>, <code>D2L_OCR_LANG</code></td><td><code>0</code> turns OCR off; languages for tesseract, e.g. <code>eng+ara</code></td></tr>
+  <tr><td><code>SEMESTRA_URL</code>, <code>SEMESTRA_KEY</code></td><td>Semestra connector address and key (set them in the app)</td></tr>
   <tr><td><code>D2L_SSO_BUTTON</code></td><td>Label of your login page's SSO button (a regex), if the automatic re-login doesn't find it</td></tr>
   <tr><td><code>D2L_NOTIFY_DESKTOP</code></td><td><code>0</code> turns off desktop notifications</td></tr>
   <tr><td><code>D2L_TELEGRAM_TOKEN</code>, <code>D2L_TELEGRAM_CHAT</code></td><td>Telegram bot token and your chat id</td></tr>

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Read your Brightspace content through the official API and normalise it into plain rows.
 
 Endpoints confirmed against UDST's instance (d2l.udst.edu.qa), Sept 2026 — see NOTES.md:
@@ -88,10 +89,16 @@ def announcements(api: Api, ou: int) -> list[dict]:
     return out
 
 
-def grades(api: Api, ou: int) -> list[dict]:
+def grade_categories(api: Api, ou: int) -> list[dict]:
+    """Grade categories with their weight in the final grade (e.g. Quizzes 25, Tests 35)."""
+    return [{"id": c["Id"], "course_id": ou, "name": c.get("Name"), "weight": c.get("Weight")}
+            for c in api.grade_categories(ou)]
+
+
+def grades(api: Api, ou: int, categories: list[dict] | None = None) -> list[dict]:
     """Grade items with your released value, named by category. Category totals are not items, so they no longer
-    show up as rows the way they did in the HTML grades table."""
-    cats = {c["Id"]: c["Name"] for c in api.grade_categories(ou)}
+    show up as rows the way they did in the HTML grades table. Pass `categories` to avoid fetching them twice."""
+    cats = {c["id"]: c["name"] for c in (categories if categories is not None else grade_categories(api, ou))}
     mine = {int(v["GradeObjectIdentifier"]): v for v in api.my_grades(ou)}
     out = []
     for g in api.grade_items(ou):
@@ -126,12 +133,45 @@ def assignments(api: Api, ou: int) -> list[dict]:
         score = (entity.get("Feedback") or {}).get("Score")
         out_of = (f.get("Assessment") or {}).get("ScoreDenominator")
         status = SUBMISSION_STATUS.get(entity.get("Status"), "Not submitted")
+        fb = entity.get("Feedback") or {}
+        rubric = _rubric(f, fb)
+        overall = _clean((fb.get("Feedback") or {}).get("Text") or "") or next(
+            (_clean((r.get("OverallFeedback") or {}).get("Text") or "") for r in fb.get("RubricAssessments") or []
+             if (r.get("OverallFeedback") or {}).get("Text")), "")
+        dates = [s.get("SubmissionDate") for s in entity.get("Submissions") or [] if s.get("SubmissionDate")]
         out.append({"id": f["Id"], "course_id": ou, "name": f["Name"], "due": f.get("DueDate"),
                     "instructions": _clean((f.get("CustomInstructions") or {}).get("Text") or ""),
                     "submitted": int(bool(entity.get("Submissions"))),
                     "status": f"{status}, {files} file{'s' * (files != 1)}" if files else status,
-                    "score": None if score is None else f"{score:g}" + (f" / {out_of:g}" if out_of else "")})
+                    "score": None if score is None else f"{score:g}" + (f" / {out_of:g}" if out_of else ""),
+                    "feedback": overall or None,
+                    "rubric": json.dumps(rubric) if rubric else None,
+                    "feedback_files": json.dumps([x.get("FileName") for x in fb.get("Files") or []]) if fb.get("Files") else None,
+                    "submitted_at": max(dates) if dates else None})
     return out
+
+
+def _rubric(folder: dict, feedback: dict) -> list[dict]:
+    """Rubric scores as rows: criterion, level reached, score out of the criterion's best level, and its comment.
+    Criterion and level names come from the folder's rubric definition; the scores from your feedback."""
+    names, levels, best = {}, {}, {}
+    for rub in (folder.get("Assessment") or {}).get("Rubrics") or []:
+        for group in rub.get("CriteriaGroups") or []:
+            group_levels = {lv["Id"]: lv for lv in group.get("Levels") or []}
+            levels.update({i: lv.get("Name") for i, lv in group_levels.items()})
+            top = max((lv.get("Points") or 0 for lv in group_levels.values()), default=None)
+            for c in group.get("Criteria") or []:
+                names[c["Id"]] = c.get("Name")
+                cells = [cell.get("Points") for cell in c.get("Cells") or [] if cell.get("Points") is not None]
+                best[c["Id"]] = max(cells) if cells else top
+    rows = []
+    for assessment in feedback.get("RubricAssessments") or []:
+        for o in assessment.get("CriteriaOutcome") or []:
+            rows.append({"criterion": names.get(o.get("CriterionId"), f"Criterion {o.get('CriterionId')}"),
+                         "level": levels.get(o.get("LevelId")), "score": o.get("Score"),
+                         "out_of": best.get(o.get("CriterionId")),
+                         "feedback": _clean((o.get("Feedback") or {}).get("Text") or "") or None})
+    return rows
 
 
 def quizzes(api: Api, ou: int) -> list[dict]:

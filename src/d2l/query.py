@@ -1,8 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Read-side of the store: the questions the CLI, dashboard, MCP server and REST API all ask.
 
 Everything here reads data/d2l.db only — never Brightspace — so an AI calling these as often as it likes costs the
 university server nothing.
 """
+import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -109,7 +111,9 @@ def assignments(db, course=None, open_only: bool = False) -> list[dict]:
         sql += " AND submitted = 0"
     return [{"id": a["id"], "course": names.get(a["course_id"]), "course_id": a["course_id"], "name": a["name"],
              "due": local(a["due"]), "due_utc": a["due"], "submitted": bool(a["submitted"]), "status": a["status"],
-             "score": a["score"], "instructions": a["instructions"]}
+             "score": a["score"], "instructions": a["instructions"], "submitted_at": local(a.get("submitted_at")),
+             "feedback": a.get("feedback"), "rubric": json.loads(a["rubric"]) if a.get("rubric") else [],
+             "feedback_files": json.loads(a["feedback_files"]) if a.get("feedback_files") else []}
             for a in store.rows(db, sql + " ORDER BY due IS NULL, due")]
 
 

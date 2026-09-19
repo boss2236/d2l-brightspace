@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """store.py (change detection, archiving) and query.py (what the CLI, dashboard, MCP and REST read)."""
 import sqlite3
 

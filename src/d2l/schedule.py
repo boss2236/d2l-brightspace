@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Run sync on a timer, and optionally keep `d2l app` running — with whatever the OS provides.
 
     d2l schedule install [--times 08:00,14:00,20:00] [--serve]   (--serve: always-on app + a launcher entry)

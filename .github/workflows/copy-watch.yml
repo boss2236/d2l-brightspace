@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Weekly search of public GitHub code for strings unique to this project; opens an issue for repos not seen before.
+# Fingerprints live in the repository secret COPY_WATCH_FINGERPRINTS (one per line; masked in logs), NOT in this repo, so
+# copiers can't see what to strip. Known, correctly licensed copies go in .github/known-copies.txt.
+name: copy-watch
+on:
+  schedule: [{ cron: "17 6 * * 1" }]          # Mondays 06:17 UTC
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  issues: write
+concurrency: { group: copy-watch, cancel-in-progress: false }
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: Search public code for fingerprints
+        env:
+          GH_TOKEN: ${{ secrets.COPY_WATCH_TOKEN || secrets.GITHUB_TOKEN }}   # a read-only PAT searches more reliably
+          FINGERPRINTS: ${{ secrets.COPY_WATCH_FINGERPRINTS }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FINGERPRINTS}" ]; then echo "no fingerprints configured"; exit 0; fi
+          : > hits.txt
+          while IFS= read -r fp; do
+            [ -z "$fp" ] && continue
+            gh api -X GET search/code -f q="\"$fp\"" --jq '.items[].repository.full_name' >> hits.txt || true
+            sleep 7                                   # code search allows ~10 requests/minute
+          done <<< "${FINGERPRINTS}"
+          touch .github/known-copies.txt
+          sort -u hits.txt | grep -vxF -f .github/known-copies.txt | grep -vxF "${REPO}" > new.txt || true
+          if [ -s new.txt ]; then
+            {
+              echo "Public repositories containing this project's fingerprint strings:"
+              echo
+              sed 's/^/- https:\/\/github.com\//' new.txt
+              echo
+              echo "A match isn't necessarily a violation. See automation-code-detection notes, then add reviewed"
+              echo "repos to .github/known-copies.txt."
+            } > body.md
+            gh issue create --repo "${REPO}" --title "copy-watch: $(wc -l < new.txt) repo(s) to review ($(date +%F))" --body-file body.md
+          else
+            echo "no new matches"
+          fi

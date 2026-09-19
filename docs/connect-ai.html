@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect your AI</title>
 <style>
@@ -179,6 +180,8 @@ args = ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]</pre><bu
   that a real MCP call gets through. The Connect AI tab then shows either ✓ Reachable or what's wrong: DNS not
   resolving, connection refused, TLS certificate, tunnel up but not reaching the laptop (502/530), a proxy rewriting
   the Host header, or a Cloudflare token that's been rejected.</p>
+  <p>If a link leaks, press <b>New token</b> in the Connect AI tab (or run <code>d2l token --rotate</code>). Every old
+  link stops working immediately; copy the new one into your connectors.</p>
   <p class="note">The secret in the link is the only lock: anyone who has it can read your courses and grades. Claude.ai
   and ChatGPT require <b>https</b> with a valid certificate, so a plain <code>http://</code> IP only suits n8n and your own
   apps. The control page (port 8766) is never exposed; tunnels and the direct port only reach the token-gated MCP/REST
@@ -214,6 +217,7 @@ args = ["run", "--directory", "/path/to/d2l-brightspace", "d2l", "mcp"]</pre><bu
   <tr><td><code>get_assignments</code></td><td>Folders, instructions, due dates, submission status and score</td></tr>
   <tr><td><code>search</code></td><td>Full-text search across everything, including lecture-note text</td></tr>
   <tr><td><code>list_files</code> / <code>read_document</code></td><td>The content tree, and the text of a PDF, DOCX, PPTX or HTML lesson (paged)</td></tr>
+  <tr><td><code>get_assignments</code> feedback</td><td>Includes instructor feedback, rubric scores per criterion, and feedback file names</td></tr>
   <tr><td><code>get_file_link</code></td><td>A download link for a file (local app link, plus a public link when that's on)</td></tr>
   <tr><td><code>course_brief</code></td><td>A whole course as one markdown document</td></tr>
   <tr><td><code>list_courses</code> / <code>sync_status</code></td><td>What's there and how fresh it is</td></tr>
@@ -237,6 +241,7 @@ MATH1030 Unit 1 notes"</i> · <i>"Make me a revision plan for Test 1"</i> · <i>
   <tr><td><code>/api/files/{id}/content?download=1</code></td><td>The file itself (PDF, slides, video…), once it's downloaded</td></tr>
   <tr><td><code>/api/events?since_days=7</code></td><td>Change feed</td></tr>
   <tr><td><code>/api/courses/{id}/brief</code></td><td>Markdown course brief</td></tr>
+  <tr><td><code>/api/semestra</code>, <code>/api/semestra/{id}</code></td><td>Grades in Semestra's import format, with notes</td></tr>
   <tr><td><code>/api/status</code> · <code>/health</code></td><td>Sync status · liveness (no token)</td></tr>
 </table>
 <p><code>course</code> accepts a code (<code>MATH1030</code>), part of a name (<code>chem</code>) or an id.</p></div>

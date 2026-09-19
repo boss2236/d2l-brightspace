@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Command line. `uv run d2l --help` lists everything; docs/commands.html explains each command.
 
     uv run d2l login          # sign in once in a real browser window; session is saved
@@ -80,6 +81,14 @@ def main() -> None:
     ap_ = sub.add_parser("app", help="the dashboard as a live app at http://127.0.0.1:8766, with the Connect AI tab")
     ap_.add_argument("--open", action="store_true", help="open it in the browser")
 
+    se2 = sub.add_parser("semestra", help="send grades to Semestra: export its import JSON, or push to a connector")
+    se2.add_argument("action", choices=["export", "push", "status"])
+    se2.add_argument("--course", help="export: code, name fragment or id (default: every course with grades)")
+    se2.add_argument("--credits", type=float, help="export: credit hours to put in the course (default 3)")
+
+    tk = sub.add_parser("token", help="show or rotate the API token used by serve/app (REST, HTTP MCP, public link)")
+    tk.add_argument("--rotate", action="store_true", help="replace it; existing links and n8n credentials stop working")
+
     no = sub.add_parser("notify", help="send pending notifications, or --test every channel")
     no.add_argument("--test", action="store_true")
 
@@ -110,6 +119,13 @@ def main() -> None:
     elif args.cmd == "serve":
         from . import server
         server.run_http(args.host, args.port)
+    elif args.cmd == "token":
+        from . import server
+        if args.rotate:
+            server.rotate_token()
+            print("new token saved to .env — restart `d2l app`/`d2l serve` if running, then update your connectors")
+        else:
+            print(server.token())
     elif args.cmd == "app":
         from . import app
         app.run(open_browser=args.open)
@@ -158,6 +174,26 @@ def _local(args) -> None:
             print(f"unpacked {unpack_stored(db)} zipped files")
             print(f"re-extracted {reindex(db, ROOT)} files")
             store.rebuild_search(db)
+        elif args.cmd == "semestra":
+            import sys
+            from . import semestra
+            if args.action == "export":
+                ids = query.course_ids(db, args.course)
+                exported = 0
+                for cid in ids:
+                    p, warnings = semestra.payload(db, cid, args.credits)
+                    for w in warnings:
+                        print(f"# {cid}: {w}", file=sys.stderr)
+                    if p:
+                        print(semestra.dumps(p))
+                        exported += 1
+                if not exported:
+                    raise SystemExit("nothing to export yet (no course with published grade items)")
+            elif args.action == "push":
+                r = semestra.push(db)
+                print(("✓ " if r["ok"] else "✕ ") + r["message"])
+            else:
+                print("configured:", semestra.configured(), "| last push:", semestra.last_push(db) or "never")
         elif args.cmd == "notify":
             if args.test:
                 chans = notify.channels()

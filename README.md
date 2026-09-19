@@ -6,6 +6,10 @@ Your own Brightspace (D2L) account as a small local hub. It includes:
 - **Notifications** when something changes.
 - A **dashboard**.
 - An **MCP server + REST API**, so any AI (Claude, Gemini, Copilot, Codex, ChatGPT…) or n8n workflow can use it as a knowledge base.
+- **Assignment feedback**: instructor comments, rubric scores per criterion, and feedback files.
+- **Text recognition (OCR)** for scanned PDFs, so worksheets and scanned solutions become searchable too.
+- A connector for **[Semestra](docs/semestra-contract.md)**, a grade planner: copy a course's grades in its import
+  format, or push them automatically after each sync.
 
 Read-only by design. It reads what your account already sees; it never submits anything.
 
@@ -145,6 +149,21 @@ naming a past course (e.g. `d2l search limits --course MATH1020`) still finds it
 
 Linux is what it's developed and tested on. The macOS and Windows scheduler and notification code follows those
 systems' documented interfaces but hasn't been run on real machines yet, so reports and fixes are welcome.
+
+## Semestra
+
+Every course with grades has a **Copy for Semestra** button on the Grades tab. It produces the exact JSON Semestra's
+Import page accepts, with notes on anything adapted (uncategorised items placed by name, calculated totals left
+out). To have it happen automatically, create a connector key in Semestra, then paste its address and key into
+**Connect AI → Semestra**. After every sync the app sends courses, grade structure, your grades and deadlines, and
+nothing else. From the terminal: `d2l semestra export --course MATH1030`, `d2l semestra push`.
+[`docs/semestra-contract.md`](docs/semestra-contract.md) specifies the connection for anyone implementing the
+receiving side.
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for what the app stores, how it's protected, and how to report a vulnerability
+privately.
 
 ## Development
 

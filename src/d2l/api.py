@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Brightspace's official REST API (Valence), called with your own logged-in browser session.
 
 Students don't get Valence app keys, but the API also accepts the web session: the cookies Playwright restored plus

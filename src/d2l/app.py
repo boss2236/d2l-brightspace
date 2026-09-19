@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """`d2l app`: the dashboard as a live local app, plus everything needed to connect AIs without the terminal.
 
     http://127.0.0.1:8766   dashboard + "Connect AI" tab (this computer only, no token)
@@ -137,6 +138,15 @@ def public_settings() -> dict:
     return {"mode": "quick" if s.get("tunnel") else "off"}       # settings from before the modes existed
 
 
+def semestra_view() -> dict:
+    """Semestra connection state for the page; the key itself is never sent to the browser."""
+    from . import semestra
+    with store.connect() as db:
+        last = semestra.last_push(db)
+    return {"configured": semestra.configured(), "url": os.environ.get("SEMESTRA_URL", ""),
+            "has_key": bool(os.environ.get("SEMESTRA_KEY")), "last": last}
+
+
 def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
     from starlette.applications import Starlette
     from starlette.requests import Request
@@ -176,7 +186,8 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
             "last_sync": query.local(last), "session_expired": expired, "clients": clients_view(),
             "rest": {"base": f"http://127.0.0.1:{MCP_PORT}/api", "mcp": f"http://127.0.0.1:{MCP_PORT}/mcp",
                      "token": server.token()},
-            "notify": {"channels": notify.channels(), "webhook": bool(os.environ.get("D2L_WEBHOOK_URL"))}})
+            "notify": {"channels": notify.channels(), "webhook": bool(os.environ.get("D2L_WEBHOOK_URL"))},
+            "semestra": semestra_view()})
 
     @route("/ui/public", methods=("POST",))
     async def set_public(request):
@@ -192,6 +203,35 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
     async def check_public(request):
         await link.check()
         return JSONResponse(link.view())
+
+    @route("/ui/semestra", methods=("POST",))
+    async def set_semestra(request):
+        from . import semestra
+        body = await request.json()
+        url, key = (body.get("url") or "").strip(), (body.get("key") or "").strip()
+        try:
+            if url:
+                semestra.check_url(url)
+        except ValueError as e:
+            return JSONResponse({"ok": False, "message": str(e)}, status_code=400)
+        if key and not (20 <= len(key) <= 200 and key.isprintable() and " " not in key):
+            return JSONResponse({"ok": False, "message": "That doesn't look like a connector key"}, status_code=400)
+        server._set_env("SEMESTRA_URL", url)
+        if key:
+            server._set_env("SEMESTRA_KEY", key)
+        return JSONResponse({"ok": True})
+
+    @route("/ui/semestra/push", methods=("POST",))
+    async def push_semestra(request):
+        from . import semestra
+        return JSONResponse(await asyncio.to_thread(semestra.push))
+
+    @route("/ui/token/rotate", methods=("POST",))
+    async def rotate(request):
+        server.rotate_token()
+        if link.base:                            # keep the saved connector link in step
+            (ROOT / "data" / "connector-url.txt").write_text(link.url() + "\n")
+        return JSONResponse({"ok": True})
 
     @route("/ui/sync", methods=("POST",))
     async def sync(request):
@@ -221,7 +261,7 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
             return JSONResponse(await add_client(key))
         return await guard(request, fn)
 
-    return Starlette(routes=[index, status, set_public, check_public, sync, login,
+    return Starlette(routes=[index, status, set_public, check_public, rotate, set_semestra, push_semestra, sync, login,
                              Route("/ui/clients/{key}", add, methods=["POST"]),
                              Route("/files/{id:int}", open_file, methods=["GET"]),
                              Route("/files/{id:int}/{rest:path}", open_asset, methods=["GET"]),

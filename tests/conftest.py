@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared fixtures. Everything here is offline: no browser, no Brightspace, no network."""
 from datetime import datetime, timedelta, timezone
 

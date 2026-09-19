@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Build a single self-contained HTML dashboard from data/*.json and open it in the browser.
 
 No server, no build step: the JSON is embedded in the page, so the file works offline and can be moved anywhere.
@@ -5,11 +6,15 @@ Reads data/d2l.db. Opens on upcoming deadlines and a card per course; tabs for w
 expand the full text), grades by category, assignments and course files. Status is
 icon + word + colour, never colour alone. Every scraped string is escaped before it touches the DOM.
 """
+import html
 import json
+import os
 import webbrowser
 
-from . import query, store
+from . import query, semestra, store
 from .session import ROOT
+
+SOURCE_URL = "https://github.com/boss2236/d2l-brightspace"
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -134,6 +139,7 @@ table.kv td:first-child { color: var(--muted); white-space: nowrap; width: 1%; }
 .form label.check input { flex: 0 0 auto; width: auto; margin: 0; }
 .form input:not([type=checkbox]) { width: 100%; font: 13.5px ui-monospace, Menlo, monospace; }
 ol.setup { padding-left: 18px; } ol.setup li { margin-bottom: 4px; }
+table.rubric th { text-align: start; font-size: 12px; color: var(--muted); padding: 4px 10px 4px 0; }
 .health.ok { color: var(--good); } .health.bad { color: var(--crit); }
 .note { border-left: 3px solid var(--warn); background: var(--card); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 14px; }
 @media (max-width: 640px) { h1 { font-size: 20px; } .cards { grid-template-columns: minmax(0, 1fr); } select { max-width: none; } }
@@ -151,7 +157,9 @@ ol.setup { padding-left: 18px; } ol.setup li { margin-bottom: 4px; }
 <div id="view"></div>
 <footer>Read-only snapshot of your own Brightspace account, this term only. Refreshed by <code>uv run d2l sync</code>
 (or the timer); rebuild this page with <code>uv run d2l ui</code>. Commands: <code>docs/commands.html</code> ·
-AI setup: <code>docs/connect-ai.html</code>.</footer>
+AI setup: <code>docs/connect-ai.html</code>.<br>
+<a href="__SOURCE__" target="_blank" rel="noopener">Source code</a> · licensed under the
+<a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">GNU AGPL v3.0 or later</a>.</footer>
 </div>
 <script>
 const DATA = __DATA__;
@@ -227,7 +235,7 @@ function overview() {
 }
 
 const ICON = {new_announcement: "📢", new_grade: "🎯", grade_changed: "🎯", new_assignment: "📝", due_changed: "📝",
-              new_quiz: "⏱", new_files: "📄", due_soon: "⏰", session_expired: "🔑", new_course: "🎓", course_archived: "🗄"};
+              new_quiz: "⏱", new_files: "📄", due_soon: "⏰", session_expired: "🔑", new_feedback: "💬", new_course: "🎓", course_archived: "🗄"};
 function whatsNew() {
   const rs = filtered(DATA.events);
   if (!rs.length) return '<p class="empty">Nothing new yet. Changes show up here after the next sync notices them.</p>';
@@ -256,8 +264,12 @@ function grades() {
     const cats = {};
     gs.forEach(g => (cats[g.category || "Other"] ||= []).push(g));
     if (cats.Other) { const o = cats.Other; delete cats.Other; cats.Other = o; }     // named categories first
+    const sem = (DATA.semestra || {})[id] || {};
+    const semBtn = sem.payload ? `<button class="btn small" style="margin-left:auto"
+        title="${esc((sem.warnings || []).join("\\n") || "Paste into Semestra → Import")}"
+        onclick="copyText(JSON.stringify(DATA.semestra['${id}'].payload, null, 2), this)">Copy for Semestra${sem.warnings.length ? " ⓘ" : ""}</button>` : "";
     return `<div class="group"><h4>${chip(+id)} ${esc((byId[id] || {}).name)}
-        <span class="muted small">${gs.filter(g => g.graded).length} of ${gs.length} graded</span></h4>
+        <span class="muted small">${gs.filter(g => g.graded).length} of ${gs.length} graded</span>${semBtn}</h4>
       <div class="list">${Object.entries(cats).map(([cat, items]) => `<div class="cat" style="padding:0 14px">${esc(cat)}</div>` + items.map(g => {
         const pct = g.points && g.out_of ? parseFloat(g.points) / g.out_of * 100 : null;
         return `<div class="row"><span class="title">${esc(g.item)}${g.weight ? ` <span class="muted small">· weight ${+g.weight.toFixed(2)}</span>` : ""}</span>
@@ -277,10 +289,29 @@ function assignments() {
       : h != null && h < 0 ? `<span class="badge no">✕ overdue</span>`
       : h != null ? `<span class="badge due">◔ due ${until(h)}</span>`
       : `<span class="badge no">✕ ${esc(a.status)}</span>`;
-    return `<div class="row"><span class="title">${esc(a.name)}</span>
+    const fb = feedbackHtml(a);
+    const head = `<span class="title">${esc(a.name)}</span>
       <span class="right">${a.score ? esc(a.score) : '<span class="muted">—</span>'}</span>
-      <span class="meta">${chip(a.course_id)}${status}${a.due ? `<span>due ${esc(a.due)}</span>` : ""}</span></div>`;
+      <span class="meta">${chip(a.course_id)}${status}${a.due ? `<span>due ${esc(a.due)}</span>` : ""}
+        ${fb ? '<span class="badge new">💬 feedback</span>' : ""}</span>`;
+    return fb ? `<details class="row"><summary>${head}</summary>${fb}</details>` : `<div class="row">${head}</div>`;
   }).join("")}</div>`;
+}
+function feedbackHtml(a) {
+  // instructor feedback, rubric breakdown and feedback files; empty when nothing has been released
+  const rub = a.rubric || [], files = a.feedback_files || [];
+  if (!a.feedback && !rub.length && !files.length) return "";
+  const total = rub.reduce((t, r) => t + (r.score || 0), 0), max = rub.reduce((t, r) => t + (r.out_of || 0), 0);
+  return `<div class="body">
+    ${a.submitted_at ? `<div class="muted small">Submitted ${esc(a.submitted_at)}</div>` : ""}
+    ${a.feedback ? `<p style="margin:6px 0 10px">${esc(a.feedback)}</p>` : ""}
+    ${rub.length ? `<table class="kv rubric"><tr><th>Criterion</th><th>Level</th><th>Score</th></tr>
+      ${rub.map(r => `<tr><td>${esc(r.criterion)}${r.feedback ? `<div class="muted small">${esc(r.feedback)}</div>` : ""}</td>
+        <td>${esc(r.level || "—")}</td><td class="num">${r.score ?? "—"}${r.out_of ? " / " + r.out_of : ""}</td></tr>`).join("")}
+      ${max ? `<tr><td><b>Total</b></td><td></td><td class="num"><b>${total} / ${max}</b></td></tr>` : ""}</table>` : ""}
+    ${files.length ? `<div class="small" style="margin-top:8px">Feedback files: ${files.map(esc).join(", ")}
+      <span class="muted">(open them in Brightspace)</span></div>` : ""}
+  </div>`;
 }
 
 function fileLinks(f) {
@@ -345,6 +376,16 @@ async function savePublic(mode, btn) {
   if (!r.ok) { alertBox(r.message); if (btn) { btn.disabled = false; btn.textContent = "Save and connect"; } return; }
   hideAlert(); editing = false; draft = null; refresh(true);
 }
+async function saveSemestra(btn) {
+  btn.disabled = true;
+  const r = await api("/ui/semestra", {url: document.getElementById("sem_url").value, key: document.getElementById("sem_key").value});
+  editing = false; await refresh(true);
+  if (!r.ok) alertBox(r.message); else hideAlert();
+}
+async function pushSemestra(btn) {
+  btn.disabled = true; btn.textContent = "Sending…";
+  await api("/ui/semestra/push", {}); refresh(true);
+}
 async function checkNow(btn) { btn.disabled = true; btn.textContent = "Checking…"; await api("/ui/public/check", {}); refresh(true); }
 async function runJob(name) { await api("/ui/" + name, {}); refresh(); }
 async function addClient(key, btn) {
@@ -355,7 +396,15 @@ async function addClient(key, btn) {
 }
 function alertBox(msg) { const el = document.getElementById("cmsg"); if (el) { el.textContent = msg; el.hidden = false; } }
 function hideAlert() { const el = document.getElementById("cmsg"); if (el) el.hidden = true; }
-let showToken = false;
+let showToken = false, rotateArmed = 0;
+async function rotateToken(btn) {
+  // two clicks within 5 s: a new token breaks existing cloud connectors, n8n credentials and ?token= links
+  if (Date.now() - rotateArmed > 5000) { rotateArmed = Date.now(); btn.textContent = "Click again to confirm"; return; }
+  rotateArmed = 0; btn.disabled = true;
+  await api("/ui/token/rotate", {});
+  await refresh(true);                      // redraw first, then show the message so the redraw doesn't hide it
+  alertBox("New token created. Update it in n8n and your own apps, and copy the new connector link into claude.ai / ChatGPT.");
+}
 
 function connect() {
   if (LIVE && !ST) refresh();
@@ -467,6 +516,25 @@ function connectHtml() {
   </section>
 
   <section class="panel">
+    <div class="phead"><div><h3>Semestra</h3>
+      <p class="muted small">Send your courses and grades to Semestra after every sync. In Semestra, create a connector
+      key (Settings → Connectors), then paste its address and key here. Only courses, grade structure, your grades and
+      deadlines are sent: never announcements, files or your login.</p></div>
+      ${ST.semestra.configured ? '<span class="pill on">● Connected</span>' : '<span class="pill off">● Not set up</span>'}</div>
+    <div class="form">
+      <label>Connector address<input id="sem_url" ${'oninput="editing = true" onfocus="editing = true"'} value="${esc(ST.semestra.url)}"
+        placeholder="https://<project>.supabase.co/functions/v1/connector-ingest"></label>
+      <label>Connector key<input id="sem_key" type="password" autocomplete="off" ${'oninput="editing = true" onfocus="editing = true"'}
+        placeholder="${ST.semestra.has_key ? "saved — leave empty to keep it" : "sk_semestra_…"}"></label>
+    </div>
+    <p><button class="btn primary" onclick="saveSemestra(this)">Save</button>
+       ${ST.semestra.configured ? '<button class="btn" onclick="pushSemestra(this)">Send now</button>' : ""}</p>
+    ${ST.semestra.last ? `<p class="small ${ST.semestra.last.ok ? "health ok" : "health bad"}">${ST.semestra.last.ok ? "✓" : "✕"}
+        ${esc(ST.semestra.last.message)} <span class="muted">· ${esc(new Date(ST.semestra.last.at).toLocaleString())}</span></p>` : ""}
+    <p class="small muted">Prefer copying by hand? Each course on the <b>Grades</b> tab has a <b>Copy for Semestra</b> button for Semestra's Import page.</p>
+  </section>
+
+  <section class="panel">
     <h3>n8n and your own apps</h3>
     <table class="kv">
       <tr><td>REST API</td><td><code>${esc(ST.rest.base)}</code> e.g. <code>/deadlines?days=7</code></td></tr>
@@ -474,6 +542,7 @@ function connectHtml() {
       <tr><td>Token</td><td><code>${showToken ? esc(ST.rest.token) : "••••••••••••"}</code>
         <button class="btn small" onclick="showToken = !showToken; refresh()">${showToken ? "Hide" : "Show"}</button>
         <button class="btn small" onclick="copyText('${esc(ST.rest.token)}', this)">Copy</button>
+        <button class="btn small" onclick="rotateToken(this)">${Date.now() - rotateArmed < 5000 ? "Click again to confirm" : "New token"}</button>
         <span class="muted small">send as <code>Authorization: Bearer …</code></span></td></tr>
       <tr><td>Notifications</td><td>${ST.notify.channels.map(esc).join(", ") || "none"}${ST.notify.webhook ? "" : ' · <span class="muted">no webhook set (<code>D2L_WEBHOOK_URL</code> in .env) for n8n / WhatsApp</span>'}</td></tr>
     </table>
@@ -517,10 +586,15 @@ def render(live: bool = False) -> str:
                 "announcements": query.announcements(db, limit=10_000, full=True),
                 "grades": query.grades(db), "assignments": query.assignments(db),
                 "deadlines": query.deadlines(db, 60),
-                "events": query.events(db, limit=200), "files": query.files(db)}
+                "events": query.events(db, limit=200), "files": query.files(db),
+                "semestra": {str(x["course_id"]): {"payload": x["payload"], "warnings": x["warnings"]}
+                             for x in semestra.all_payloads(db)}}
     # "</script>" inside a scraped title would end the script block early
-    blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
-    return PAGE.replace("__DATA__", blob).replace("__LIVE__", "true" if live else "false")
+    blob = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")   # no "</script>", "<!--" or "<script" possible
+    # AGPL §13: people using this over a network must be offered its source; forks set D2L_SOURCE_URL to theirs
+    source = html.escape(os.environ.get("D2L_SOURCE_URL") or SOURCE_URL, quote=True)
+    return (PAGE.replace("__DATA__", blob).replace("__LIVE__", "true" if live else "false")
+            .replace("__SOURCE__", source))
 
 
 def build(open_browser: bool = True) -> str:

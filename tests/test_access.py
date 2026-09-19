@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """The parts that decide who gets in: the token gate, public-link settings, SSO button labels, schedule parsing."""
 import re
 
@@ -74,3 +75,47 @@ def test_schedule_times_and_quoting():
     with pytest.raises(SystemExit):
         schedule._times("25:00")
     assert schedule._exec(["/usr/bin/uv", "--directory", "/home/me/My Stuff"]) == '/usr/bin/uv --directory "/home/me/My Stuff"'
+
+
+# --- regression tests from the pre-release security review ---------------------------------------------------------
+
+def test_token_gate_handles_hostile_input(client):
+    assert client.get("/api/x", headers={"Authorization": "Bearer ✓✓✓".encode()}).status_code == 401   # was a 500
+    assert client.get("/api/x?token=%E2%9C%93").status_code == 401
+    assert client.get(f"/c/{TOKEN}").status_code == 401                                          # no path after it
+    assert client.get(f"/c/{TOKEN[:-1]}X/mcp").status_code == 401
+
+
+def test_env_values_cannot_inject_lines(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    with pytest.raises(ValueError):
+        server._set_env("SEMESTRA_URL", "https://x.example\nD2L_API_TOKEN=attacker")
+    with pytest.raises(public.ConfigError):
+        public.normalise({"mode": "custom", "custom_url": "https://x.example\nY"}, {})
+
+
+def test_hostile_titles_cannot_break_the_page(db, monkeypatch):
+    from conftest import course
+    from d2l import store, ui
+    store.update_courses(db, [course(1, "X_1", "Course")])
+    evil = '</script><script>window.pwned=1</script><!--<script>'
+    store.replace_course_rows(db, "announcements", 1, [{"id": 1, "course_id": 1, "title": evil, "date": "2026-09-01T00:00:00Z",
+                                                        "body": evil, "html": "", "attachments": "[]"}])
+    db.commit()
+    page = ui.render()
+    script = page.split("<script>", 1)[1]
+    assert "</script>" not in script.split("const DATA", 1)[1].split("\n", 1)[0]          # data line can't close the tag
+    assert "<!--" not in page.split("const DATA", 1)[1].split("\n", 1)[0]
+
+
+def test_zip_bombs_are_refused(tmp_path, monkeypatch):
+    import io
+    import zipfile
+    from d2l import sync
+    monkeypatch.setattr(sync, "FILES", tmp_path)
+    monkeypatch.setattr(sync, "UNZIP_MAX", 1024 * 1024)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("big.mp4", b"\0" * (3 * 1024 * 1024))                                    # 3 MB, compresses to ~3 KB
+    with pytest.raises(ValueError, match="unpacks to more than"):
+        sync._save_bytes({"id": 1, "course_id": 1, "title": "bomb", "ext": "mp4"}, buf.getvalue())

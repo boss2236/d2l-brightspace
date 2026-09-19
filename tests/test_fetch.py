@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """fetch.py turns Brightspace API responses into rows. The fake API returns the shapes seen on a real instance."""
 from conftest import iso
 

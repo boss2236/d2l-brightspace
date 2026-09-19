@@ -1,7 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Plain text out of course files, so search and the AI can read lecture notes. Unknown types return ''."""
 import html
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -31,6 +36,32 @@ def _html_text(raw: str) -> str:
     return re.sub(r"[ \t]*\n\s*", "\n", re.sub(r"[ \t]{2,}", " ", text)).strip()
 
 
+def ocr_available() -> bool:
+    return os.environ.get("D2L_OCR", "1") != "0" and bool(shutil.which("tesseract") and shutil.which("pdftoppm"))
+
+
+def _ocr(path: Path, page_numbers: list[int]) -> dict[int, str]:
+    """Text of scanned PDF pages via poppler's pdftoppm + tesseract, both run as plain subprocesses (no shell) with
+    time limits. Off when D2L_OCR=0 or the tools aren't installed; D2L_OCR_LANG picks languages (default eng),
+    D2L_OCR_MAX_PAGES caps work per file (default 40)."""
+    if not ocr_available():
+        return {}
+    lang = re.sub(r"[^A-Za-z_+]", "", os.environ.get("D2L_OCR_LANG", "eng")) or "eng"
+    out: dict[int, str] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for n in page_numbers[: int(os.environ.get("D2L_OCR_MAX_PAGES", "40"))]:
+            img = Path(tmp) / f"p{n}"
+            try:
+                subprocess.run(["pdftoppm", "-r", "200", "-gray", "-png", "-singlefile", "-f", str(n), "-l", str(n),
+                                str(path), str(img)], check=True, capture_output=True, timeout=60)
+                r = subprocess.run(["tesseract", f"{img}.png", "-", "-l", lang], check=True, capture_output=True,
+                                   timeout=120)
+            except (subprocess.SubprocessError, OSError):
+                continue
+            out[n] = _tidy(r.stdout.decode("utf-8", "ignore"))
+    return out
+
+
 def text_of(path: Path) -> str:
     ext = path.suffix.lower().lstrip(".")
     if ext not in ("docx", "pptx") and zipfile.is_zipfile(path):
@@ -41,10 +72,17 @@ def text_of(path: Path) -> str:
     try:
         if ext == "pdf":
             from pypdf import PdfReader
-            pages = PdfReader(path).pages
-            text = "\n\n".join(f"[page {i}]\n{_tidy(p.extract_text() or '')}" for i, p in enumerate(pages, 1)).strip()
+            pages = [_tidy(p.extract_text() or "") for p in PdfReader(path).pages]
+            thin = [i for i, t in enumerate(pages) if len(t.split()) < 12]     # near-empty = a scanned page
+            ocr = _ocr(path, [i + 1 for i in thin]) if thin else {}
+            for i, t in ocr.items():
+                if len(t.split()) > len(pages[i - 1].split()):
+                    pages[i - 1] = t
+            text = "\n\n".join(f"[page {i}]\n{t}" for i, t in enumerate(pages, 1)).strip()
             words = len(re.sub(r"\[page \d+\]", "", text).split())
-            if words < 25 * len(pages):
+            if ocr:
+                text = "[some pages were scanned images; their text was recognised by OCR and may contain errors]\n\n" + text
+            if words < 25 * max(len(pages), 1):
                 text = ("[mostly images or handwriting: only a little text could be extracted — open the file to read it]\n\n"
                         + text)
             return text

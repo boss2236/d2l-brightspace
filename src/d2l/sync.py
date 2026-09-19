@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One sync: fetch this term's courses from Brightspace, store them, record what changed, download new course files,
 send notifications, and write the JSON exports.
 
@@ -5,9 +6,10 @@ Safe to run on a timer: a lock stops overlapping runs, requests are serial and p
 downloaded when they're new or changed, and the first ever run records a baseline instead of flooding you with
 "new" alerts for everything that already existed.
 """
+import hashlib
 import io
-import os
 import json
+import os
 import re
 import shutil
 import zipfile
@@ -84,7 +86,10 @@ def _run(headless, scope, want_files, quiet) -> dict:
         for c in cs:
             ou, news_url = c["id"], f"{base_url()}/d2l/lms/news/main.d2l?ou={c['id']}"
             counts = {}
-            for table, fn in (("announcements", fetch.announcements), ("grades", fetch.grades),
+            cats = fetch.grade_categories(api, ou)
+            store.replace_course_rows(db, "grade_categories", ou, cats)
+            for table, fn in (("announcements", fetch.announcements),
+                              ("grades", lambda a, o: fetch.grades(a, o, cats)),
                               ("assignments", fetch.assignments), ("quizzes", fetch.quizzes),
                               ("content", fetch.content)):
                 new = fn(api, ou)
@@ -106,6 +111,13 @@ def _run(headless, scope, want_files, quiet) -> dict:
                             ev("new_assignment", f"asg:{r['id']}", ou, r["name"] + (f" — due {local(r['due'])}" if r["due"] else ""))
                         elif old.get("due") != r["due"] and r["due"]:
                             ev("due_changed", f"due:{r['id']}:{r['due']}", ou, f"{r['name']} now due {local(r['due'])}")
+                        if (r.get("feedback") or r.get("rubric")) and (old is None or old.get("feedback") != r.get("feedback")
+                                                                        or old.get("rubric") != r.get("rubric")):
+                            digest = hashlib.sha256(f"{r.get('feedback')}|{r.get('rubric')}".encode()).hexdigest()[:12]
+                            ev("new_feedback", f"fb:{r['id']}:{digest}", ou,
+                               f"Feedback on {r['name']}" + (f" — {r['score']}" if r.get("score") else ""),
+                               (r.get("feedback") or "")[:400],
+                               f"{base_url()}/d2l/lms/dropbox/user/folder_user_view_feedback.d2l?db={r['id']}&ou={ou}")
                 elif table == "quizzes":
                     for r, old in changes:
                         if old is None:
@@ -114,11 +126,11 @@ def _run(headless, scope, want_files, quiet) -> dict:
                     for r, old in changes:           # changed file on the server -> fetch it again
                         if old is not None:
                             db.execute("UPDATE content SET file_status = NULL WHERE id = ?", (r["id"],))
-                    added = [r for r, old in changes if old is None]
-                    if added:
-                        names = ", ".join(r["title"] for r in added[:4]) + (f" +{len(added) - 4} more" if len(added) > 4 else "")
-                        ev("new_files", f"files:{ou}:{min(r['id'] for r in added)}:{len(added)}", ou,
-                           f"{len(added)} new in course content: {names}", url=f"{base_url()}/d2l/le/content/{ou}/Home")
+                    new_items = [r for r, old in changes if old is None]
+                    if new_items:
+                        names = ", ".join(r["title"] for r in new_items[:4]) + (f" +{len(new_items) - 4} more" if len(new_items) > 4 else "")
+                        ev("new_files", f"files:{ou}:{min(r['id'] for r in new_items)}:{len(new_items)}", ou,
+                           f"{len(new_items)} new in course content: {names}", url=f"{base_url()}/d2l/le/content/{ou}/Home")
             print(f"  {c['short'][:42]:<42} " + "  ".join(f"{k[:5]} {v:>3}" for k, v in counts.items()))
 
         ids = [c["id"] for c in cs]
@@ -139,6 +151,10 @@ def _run(headless, scope, want_files, quiet) -> dict:
             sent = notify.flush(db)
             if sent:
                 print("notified:", ", ".join(f"{k} {v}" for k, v in sent.items()))
+        from . import semestra
+        if semestra.configured():
+            r = semestra.push(db)
+            print(f"semestra: {'ok' if r['ok'] else 'failed'} — {r['message']}")
     print(f"{stats['events']} new events, {stats['downloaded']} files downloaded")
     return stats
 
@@ -164,7 +180,8 @@ def _store_file(api: Api, db, t: dict, limit: int) -> str:
     return "ok"
 
 
-OFFICE = {"docx", "pptx", "xlsx", "zip"}          # formats that *are* zip files — leave them alone
+OFFICE = {"docx", "pptx", "xlsx", "zip"}
+UNZIP_MAX = 1024 * 1024 * 1024                    # refuse archives that would unpack to more than 1 GB          # formats that *are* zip files — leave them alone
 
 
 def _save_bytes(t: dict, data: bytes) -> Path:
@@ -181,6 +198,8 @@ def _save_bytes(t: dict, data: bytes) -> Path:
         return plain
     z = zipfile.ZipFile(io.BytesIO(data))
     members = [m for m in z.infolist() if not m.is_dir()]
+    if sum(m.file_size for m in members) > UNZIP_MAX or len(members) > 5000:
+        raise ValueError(f"{t['title']}: archive unpacks to more than {UNZIP_MAX // 2**20} MB; not stored")
     if ext in ("html", "htm"):
         dest = folder / str(t["id"])
         shutil.rmtree(dest, ignore_errors=True)

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Storing downloaded files (Brightspace zips HTML lessons and videos) and pulling text out of them."""
 import io
 import zipfile

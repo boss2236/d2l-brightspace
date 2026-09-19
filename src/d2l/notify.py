@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Send queued events to every configured channel, then mark them sent.
 
 Channels (all optional, set in .env):
@@ -19,7 +20,7 @@ from . import store
 
 ICON = {"new_announcement": "📢", "new_grade": "🎯", "grade_changed": "🎯", "new_assignment": "📝",
         "due_changed": "📝", "new_quiz": "⏱", "new_files": "📄", "due_soon": "⏰", "session_expired": "🔑",
-        "new_course": "🎓", "course_archived": "🗄", "test": "✅"}
+        "new_feedback": "💬", "new_course": "🎓", "course_archived": "🗄", "test": "✅"}
 
 
 def channels() -> list[str]:

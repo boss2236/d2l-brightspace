@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Local SQLite store: data/d2l.db. The one place everything else (dashboard, MCP, REST, notifications) reads from.
 
 Each sync upserts rows and returns what is new or changed; `sync.py` turns those diffs into `events`, which is the
@@ -5,6 +6,7 @@ Each sync upserts rows and returns what is new or changed; `sync.py` turns those
 titles and the extracted text of downloaded files.
 """
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -21,10 +23,12 @@ CREATE TABLE IF NOT EXISTS announcements (
   id INTEGER PRIMARY KEY, course_id INTEGER, title TEXT, date TEXT, body TEXT, html TEXT, attachments TEXT);
 CREATE TABLE IF NOT EXISTS assignments (
   id INTEGER PRIMARY KEY, course_id INTEGER, name TEXT, due TEXT, instructions TEXT,
-  submitted INTEGER, status TEXT, score TEXT);
+  submitted INTEGER, status TEXT, score TEXT, feedback TEXT, rubric TEXT, feedback_files TEXT, submitted_at TEXT);
 CREATE TABLE IF NOT EXISTS grades (
   id INTEGER PRIMARY KEY, course_id INTEGER, name TEXT, category TEXT, type TEXT,
   max_points REAL, weight REAL, grade TEXT, points REAL, out_of REAL, comments TEXT, updated TEXT);
+CREATE TABLE IF NOT EXISTS grade_categories (
+  id INTEGER PRIMARY KEY, course_id INTEGER, name TEXT, weight REAL);
 CREATE TABLE IF NOT EXISTS quizzes (
   id INTEGER PRIMARY KEY, course_id INTEGER, name TEXT, start TEXT, "end" TEXT, due TEXT, active INTEGER);
 CREATE TABLE IF NOT EXISTS calendar (
@@ -43,8 +47,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(kind, ref UNINDEXED, course
 # columns compared to decide "changed" (everything except bulky or derived ones)
 WATCH = {
     "announcements": ("title", "body"),
-    "assignments": ("name", "due", "submitted", "score"),
+    "assignments": ("name", "due", "submitted", "score", "feedback", "rubric"),
     "grades": ("grade",),
+    "grade_categories": ("name", "weight"),
     "quizzes": ("name", "start", "end", "due"),
     "content": ("title", "modified"),
     "calendar": ("title", "start"),
@@ -58,7 +63,8 @@ def now() -> str:
 
 @contextmanager
 def connect():
-    DB.parent.mkdir(exist_ok=True)
+    DB.parent.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(DB.parent, 0o700)                    # grades, feedback, course files: yours only
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
@@ -72,10 +78,13 @@ def connect():
 
 def _migrate(db) -> None:
     """Bring databases made by older versions up to the current schema."""
-    cols = {r[1] for r in db.execute("PRAGMA table_info(courses)")}
-    if "archived" not in cols:
-        db.execute("ALTER TABLE courses ADD COLUMN archived INTEGER DEFAULT 0")
-        db.execute("ALTER TABLE courses ADD COLUMN archived_at TEXT")
+    def add(table, *columns):
+        have = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+        for col in columns:
+            if col.split()[0] not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+    add("courses", "archived INTEGER DEFAULT 0", "archived_at TEXT")
+    add("assignments", "feedback TEXT", "rubric TEXT", "feedback_files TEXT", "submitted_at TEXT")
 
 
 def rows(db, sql: str, *args) -> list[dict]:
@@ -136,7 +145,8 @@ def add_event(db, kind: str, ref: str, course_id: int | None, summary: str, deta
 def rebuild_search(db) -> None:
     db.execute("DELETE FROM search")
     db.execute("INSERT INTO search SELECT 'announcement', id, course_id, title, body FROM announcements")
-    db.execute("INSERT INTO search SELECT 'assignment', id, course_id, name, instructions FROM assignments")
+    db.execute("INSERT INTO search SELECT 'assignment', id, course_id, name, "
+               "coalesce(instructions, '') || ' ' || coalesce(feedback, '') || ' ' || coalesce(rubric, '') FROM assignments")
     db.execute("INSERT INTO search SELECT 'grade', id, course_id, name, coalesce(category, '') || ' ' || coalesce(comments, '') FROM grades")
     db.execute("INSERT INTO search SELECT 'quiz', id, course_id, name, '' FROM quizzes")
     db.execute("INSERT INTO search SELECT CASE WHEN text IS NULL THEN 'content' ELSE 'file' END, id, course_id, title, "
@@ -145,5 +155,5 @@ def rebuild_search(db) -> None:
 
 def prune(db) -> None:
     """Drop rows whose course isn't stored at all (active or archived) — leftovers, never an archived term."""
-    for t in ("announcements", "assignments", "grades", "quizzes", "calendar", "content"):
+    for t in ("announcements", "assignments", "grades", "grade_categories", "quizzes", "calendar", "content"):
         db.execute(f"DELETE FROM {t} WHERE course_id NOT IN (SELECT id FROM courses)")

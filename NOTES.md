@@ -107,6 +107,14 @@ yet; grades exist but are mostly unmarked (`- / 100`).
   small site at `/files/<id>/…`, a single wrapped file (video) is stored as itself so it plays.
 - Videos (~40–50 MB each) are not fetched by the sync; clicking one in the app (or `d2l get <id>`) fetches it.
 
+## Feedback and rubrics (19 Sep 2026)
+
+- `…/dropbox/folders/{id}/submissions/mysubmissions/` → `Feedback: {Score, Feedback.Text, Files[], RubricAssessments[]}`.
+  `RubricAssessments[].CriteriaOutcome[]` only has ids and scores; criterion and level **names** come from the
+  folder's own `Assessment.Rubrics[].CriteriaGroups[]` (`Levels[]`, `Criteria[]`), so no extra rubric request is needed.
+- Grade category **weights** come from `grades/categories/` (`Weight`); item `Weight` values are inconsistent (UDST's
+  Final Exam says 100 = 100% of its category, quizzes say 8.33 each). Semestra's export uses category weights.
+
 ## Ideas
 
 - [ ] Assignment submissions feedback files / rubric text (route: `.../mysubmissions/` has `Feedback`)
