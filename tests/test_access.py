@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """The parts that decide who gets in: the token gate, public-link settings, SSO button labels, schedule parsing."""
+import asyncio
 import re
+import sys
+import types
 
 import pytest
 from starlette.applications import Starlette
@@ -8,7 +11,7 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from d2l import public, schedule, server, session
+from d2l import app, public, schedule, server, session
 
 TOKEN = "t0ken-for-tests-" + "x" * 30
 
@@ -119,3 +122,51 @@ def test_zip_bombs_are_refused(tmp_path, monkeypatch):
         z.writestr("big.mp4", b"\0" * (3 * 1024 * 1024))                                    # 3 MB, compresses to ~3 KB
     with pytest.raises(ValueError, match="unpacks to more than"):
         sync._save_bytes({"id": 1, "course_id": 1, "title": "bomb", "ext": "mp4"}, buf.getvalue())
+
+
+# --- the sign-in window: it needs a desktop, and the app service often starts before there is one ---------------
+
+def test_windowed_env_keeps_a_display_it_already_has(monkeypatch):
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.setattr(app.subprocess, "run", lambda *a, **k: pytest.fail("shouldn't ask systemd"))
+    assert app._windowed_env()["WAYLAND_DISPLAY"] == "wayland-1"
+
+
+def test_windowed_env_asks_the_session_manager_when_started_before_the_desktop(monkeypatch):
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    shown = ("XDG_RUNTIME_DIR=/run/user/1000\nDISPLAY=:0\nWAYLAND_DISPLAY=wayland-1\n"
+             "HYPRLAND_CMD=$'Hyprland --watchdog-fd 4'\nPATH=/usr/bin\n")
+    monkeypatch.setattr(app.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout=shown, returncode=0))
+    env = app._windowed_env()
+    assert (env["DISPLAY"], env["WAYLAND_DISPLAY"]) == (":0", "wayland-1")
+    assert env.get("HYPRLAND_CMD") != "$'Hyprland --watchdog-fd 4'"   # systemd-quoted values are left alone
+    assert env["PATH"] != "/usr/bin"                                  # only the display variables are taken
+
+
+def test_windowed_env_survives_a_machine_without_systemd(monkeypatch):
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(app.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError))
+    assert app._no_display(app._windowed_env())
+
+
+def test_no_display_only_judges_linux(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")        # macOS and Windows open windows without DISPLAY
+    assert not app._no_display({})
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert app._no_display({})
+    assert not app._no_display({"DISPLAY": ":0"})
+
+
+def test_login_job_says_what_to_do_instead_of_showing_a_chrome_crash(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(app.asyncio, "create_subprocess_exec",
+                        lambda *a, **k: pytest.fail("no window, so nothing should be launched"))
+    job = app.Job("login")
+    asyncio.run(job.run("login", env={"PATH": "/usr/bin"}))
+    assert job.state == "failed"
+    assert "d2l login" in "\n".join(job.log)

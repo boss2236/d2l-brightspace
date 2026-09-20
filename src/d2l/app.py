@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -40,17 +41,52 @@ def _save(**kw) -> None:
     SETTINGS.write_text(json.dumps({**_settings(), **kw}, indent=1))
 
 
+def _windowed_env() -> dict[str, str]:
+    """The environment a browser window needs, for a job that opens one.
+
+    `d2l app` normally runs as a user service that starts at boot — before Hyprland (or GNOME, KDE, …) hands
+    DISPLAY and WAYLAND_DISPLAY to the session manager. A browser launched from it then has nowhere to appear and
+    dies with "Missing X server or $DISPLAY", which is what "Log in again" used to show. The manager knows those
+    values by the time anyone presses the button, so ask it instead of asking for a restart.
+    """
+    env = dict(os.environ)
+    if env.get("WAYLAND_DISPLAY") or env.get("DISPLAY") or not sys.platform.startswith("linux"):
+        return env
+    try:
+        out = subprocess.run(["systemctl", "--user", "show-environment"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return env
+    for line in out.splitlines():
+        key, _, value = line.partition("=")
+        # systemd quotes values that need it ($'…'); the ones wanted here never do, so skip those rather than parse
+        if key in ("WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR") and value and value[0] != "$":
+            env[key] = value
+    return env
+
+
+def _no_display(env: dict[str, str]) -> bool:
+    """True when a window can't be opened at all — a Linux box with no desktop session to put it on."""
+    return sys.platform.startswith("linux") and not (env.get("WAYLAND_DISPLAY") or env.get("DISPLAY"))
+
+
 class Job:
     """A background `d2l …` run whose progress the page can show."""
 
     def __init__(self, name: str):
         self.name, self.state, self.log, self.started, self.finished = name, "idle", [], None, None
 
-    async def run(self, *args: str) -> None:
+    async def run(self, *args: str, env: dict[str, str] | None = None) -> None:
+        """`env` is passed when the job opens a browser window; without it the child inherits this process's."""
         if self.state == "running":
             return
         self.state, self.log, self.started, self.finished = "running", [], time.time(), None
-        proc = await asyncio.create_subprocess_exec(*D2L, *args, cwd=ROOT, stdout=asyncio.subprocess.PIPE,
+        if env is not None and _no_display(env):
+            self.log = ["No desktop session to open a sign-in window in.",
+                        "Sign in from a terminal instead:  uv run d2l login"]
+            self.state, self.finished = "failed", time.time()
+            return
+        proc = await asyncio.create_subprocess_exec(*D2L, *args, cwd=ROOT, env=env, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.STDOUT)
         async for line in proc.stdout:
             self.log = (self.log + [line.decode(errors="ignore").rstrip()])[-30:]
@@ -257,7 +293,7 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
 
     @route("/ui/login", methods=("POST",))
     async def login(request):
-        asyncio.create_task(jobs["login"].run("login"))
+        asyncio.create_task(jobs["login"].run("login", env=_windowed_env()))
         return JSONResponse({"ok": True})
 
     async def open_file(request: Request):

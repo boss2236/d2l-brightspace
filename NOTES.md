@@ -70,6 +70,12 @@ The `/d2l/api/le/1.99/{ou}/content/topics/{id}/file` route 404s here — use `Di
 - The news table interleaves attachment rows (`"Attachment(s): file.pdf (1 MB)"`); keep only rows with a real date.
 - Assignment rows fold the due date into the folder cell as a second line: `"Name\nDue on Apr 14, 2026 11:59 PM"`.
 
+- **A user service starts before the desktop does.** `d2l-app.service` comes up at boot with only `XDG_RUNTIME_DIR`
+  in its environment; Hyprland imports `DISPLAY` and `WAYLAND_DISPLAY` into the session manager later. The app
+  inherits what it started with, so the browser window "Log in again" opens died with `Missing X server or
+  $DISPLAY` while the same `d2l login` worked in a terminal. `app._windowed_env()` reads the two variables back
+  from `systemctl --user show-environment` when the job needs a window (20 Sep 2026).
+
 ## First real run (18 Sep 2026)
 
 18 courses, 130 announcements, 8 assignment folders, 161 grade items. Most courses have no assignments posted
