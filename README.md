@@ -60,6 +60,9 @@ The easy way: open **Brightspace** from the app launcher (the `d2l app` service 
 - **My Cloudflare tunnel.** Your domain with a fixed address; paste a tunnel token and hostname.
 - **My own URL / IP.** Your own proxy, public IP + port forwarding, ngrok, Tailscale…
 
+Step-by-step for each of those, including Tailscale (private, nothing published), a named Cloudflare tunnel with a
+fixed address, and reverse-proxy gotchas: [`docs/tunnels.md`](docs/tunnels.md).
+
 A live reachability check says whether the link really works from the internet, and what's wrong if not. The tab
 also adds the connector to local AI apps with one click, and can sync or log in again. The commands below do the
 same by hand.
@@ -99,7 +102,7 @@ and why, and "Using it at another university" below covers schools where that ru
   automated access is the real cost. Three syncs a day is gentle; don't put it on a fast timer.
 - `data/`, `session/`, `user-data-dir/` and `.env` are gitignored. They contain your cookies, grades and coursework.
 - `d2l serve` binds to localhost and requires a token. Exposing it through a tunnel for web AIs is opt-in and makes
-  your data reachable from the internet; see `docs/connect-ai.html`.
+  your data reachable from the internet; see `docs/connect-ai.html` and [`docs/tunnels.md`](docs/tunnels.md).
 - Endpoints can move. If a sync suddenly returns empty lists, check `NOTES.md`, look at DevTools → Network on the
   page in question, and update `src/d2l/api.py`.
 
