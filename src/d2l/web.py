@@ -6,7 +6,8 @@ redirect server on port 80: each request reads the app's current port from .env 
 http://d2l.localhost:<port>/…, so it keeps working when the app moves to another port. It serves nothing else and
 reads nothing but .env.
 
-    d2l web             run it (what the service runs)
+    d2l web             is it on? (same as `d2l web status`)
+    d2l web run         run it in the foreground (what the service runs)
     d2l web install     start it at boot. Linux: a system service running as you, allowed only to use port 80
                         (asks for sudo once). macOS: a launchd agent (macOS lets users use port 80).
     d2l web remove      undo that
@@ -69,7 +70,12 @@ class Handler(BaseHTTPRequestHandler):
 
 def run() -> None:
     port = ports.web()
-    servers = [ThreadingHTTPServer(("127.0.0.1", port), Handler)]
+    try:
+        servers = [ThreadingHTTPServer(("127.0.0.1", port), Handler)]
+    except PermissionError:
+        raise SystemExit(f"port {port} needs permission: run `d2l web install` to set up http://{ports.HOST} as a service")
+    except OSError as e:
+        raise SystemExit(f"port {port} isn't available ({e.strerror}); the app is at {ports.app_url()}")
     try:                                                         # browsers may try ::1 first for *.localhost
         class V6(ThreadingHTTPServer):
             address_family = socket.AF_INET6
@@ -110,7 +116,7 @@ After=network.target
 
 [Service]
 User={getpass.getuser()}
-ExecStart={_exec(command('web'))}
+ExecStart={_exec(command('web', 'run'))}
 Environment=D2L_WEB_PORT={ports.web()}
 Restart=on-failure
 RestartSec=3
@@ -132,7 +138,7 @@ WantedBy=multi-user.target
     elif sys.platform == "darwin":
         AGENT.parent.mkdir(parents=True, exist_ok=True)
         with AGENT.open("wb") as f:
-            plistlib.dump({"Label": AGENT.stem, "ProgramArguments": command("web"), "RunAtLoad": True,
+            plistlib.dump({"Label": AGENT.stem, "ProgramArguments": command("web", "run"), "RunAtLoad": True,
                            "KeepAlive": True, "WorkingDirectory": str(ROOT)}, f)
         subprocess.run(["launchctl", "unload", str(AGENT)], capture_output=True)
         subprocess.run(["launchctl", "load", str(AGENT)], check=True)

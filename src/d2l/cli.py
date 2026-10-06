@@ -84,7 +84,7 @@ def main() -> None:
     po.add_argument("--assign", action="store_true", help="pick random free ports if none are set yet, or if one is taken")
     sub.add_parser("open", help="open the Brightspace app in your browser")
     we = sub.add_parser("web", help="http://d2l.localhost: run the forwarder, or install/remove it as a service")
-    we.add_argument("action", nargs="?", choices=["run", "install", "remove", "status"], default="run")
+    we.add_argument("action", nargs="?", choices=["run", "install", "remove", "status"], default="status")
     sub.add_parser("mcp", help="run the MCP server on stdio (for Claude, Gemini CLI, Copilot, Cursor…)")
     sv = sub.add_parser("serve", help="run MCP over HTTP + the REST API (for apps, n8n, remote AIs)")
     sv.add_argument("--host", default="127.0.0.1")

@@ -50,6 +50,9 @@ def app_url(path: str = "/") -> str:
 
 def is_free(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # same option the servers bind with: a port still holding closed connections (just after a restart) is free
+        # for them, while one with a live listener still fails here (Linux and macOS)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", port))
         except OSError:
