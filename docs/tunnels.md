@@ -1,6 +1,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # Reaching this from outside
 
+> **Port numbers:** installs made with `install.sh` use random ports; the examples below say `8765` for the MCP
+> port. Run `d2l ports` and use yours.
+
 Everything here runs on your own computer, and apps on that computer reach it at `127.0.0.1` with nothing to set
 up. You only need a public address for something that isn't on your computer:
 
@@ -13,14 +16,14 @@ up. You only need a public address for something that isn't on your computer:
 | Semestra's **Sync now** | No — the connector polls Semestra, so nothing has to reach you |
 
 Pick a route below, then set it in the app: **Brightspace → Connect AI → Public link** (`d2l app`, at
-http://127.0.0.1:8766).
+http://d2l.localhost).
 
 ## What is actually exposed
 
 | Port | What it is | Exposed? |
 |---|---|---|
-| 8765 | MCP + REST for AIs and apps, token-gated | **This one, and only this one** |
-| 8766 | the app itself: dashboard, settings, sync and login buttons | **Never.** Localhost only, and it refuses requests whose `Host` isn't localhost |
+| MCP port | MCP + REST for AIs and apps, token-gated | **This one, and only this one** |
+| app port | the app itself: dashboard, settings, sync and login buttons | **Never.** Localhost only, and it refuses requests whose `Host` isn't localhost |
 
 The connector link you give an AI looks like this, and the middle part is your API token:
 
@@ -199,7 +202,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<host>/mcp    # 401 —
   need it (**Public link → Off**).
 - **Rotate if it leaks**: `uv run d2l token --rotate`, or **New token** in the app. Every existing connector link,
   n8n credential and `?token=` URL stops working, so update them afterwards.
-- **Never expose 8766.** It has the buttons that log in and sync; it listens on localhost and rejects non-localhost
+- **Never expose the app port.** It has the buttons that log in and sync; it listens on localhost and rejects non-localhost
   `Host` headers, and no route here should point at it.
 - **Least exposure wins.** If only your own devices need it, Tailscale or a VPN means nothing is published at all.
 - **Your tunnel is yours.** Tokens, credentials and `.env` stay out of git — they're gitignored for that reason.

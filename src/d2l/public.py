@@ -23,10 +23,9 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import server
+from . import ports, server
 from .session import ROOT
 
-MCP_PORT = 8765
 MODES = ("off", "quick", "cloudflare", "custom")
 HOSTNAME = re.compile(r"^(?=.{1,253}$)([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$", re.I)
 
@@ -67,14 +66,14 @@ def normalise(cfg: dict, saved: dict) -> dict:
             raise ConfigError("Enter only the address (scheme, host and port), without a path")
         direct = bool(cfg.get("direct"))
         port = int(cfg.get("direct_port") or 8767)
-        if direct and (not (1024 <= port <= 65535) or port in (MCP_PORT, 8766)):
-            raise ConfigError("Direct port must be between 1024 and 65535, and not 8765/8766")
+        if direct and (not (1024 <= port <= 65535) or port in (ports.mcp(), ports.ui())):
+            raise ConfigError(f"Direct port must be between 1024 and 65535, and not {ports.mcp()}/{ports.ui()} (this app's own ports)")
         out.update(custom_url=f"{u.scheme}://{u.netloc}", direct=direct, direct_port=port)
     return out
 
 
 class Forwarder:
-    """A plain TCP relay 0.0.0.0:<port> → 127.0.0.1:8765, for IP / port-forwarding / remote reverse-proxy setups.
+    """A plain TCP relay 0.0.0.0:<port> → 127.0.0.1:<MCP port>, for IP / port-forwarding / remote reverse-proxy setups.
     The MCP server itself stays on 127.0.0.1; this is the only thing that listens on other interfaces."""
 
     def __init__(self):
@@ -90,7 +89,7 @@ class Forwarder:
 
     async def _pipe(self, reader, writer):
         try:
-            up_r, up_w = await asyncio.open_connection("127.0.0.1", MCP_PORT)
+            up_r, up_w = await asyncio.open_connection("127.0.0.1", ports.mcp())
         except OSError:
             writer.close()
             return
@@ -139,7 +138,7 @@ class PublicLink:
             self.state, self.error = "error", "cloudflared is not installed (Arch: sudo pacman -S cloudflared)"
             return
         if mode == "quick":
-            await self._spawn(["cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{MCP_PORT}"])
+            await self._spawn(["cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{ports.mcp()}"])
         elif mode == "cloudflare":
             self._set_public(cfg["cf_host"], f"https://{cfg['cf_host']}")
             # token via environment, not argv: argv is readable by every process on the machine (ps)
@@ -310,11 +309,11 @@ class PublicLink:
                 detail = "something answers at that address, but it isn't this Brightspace app — check where it points"
             elif r.status_code in (502, 503, 504, 530):
                 detail = (f"HTTP {r.status_code}: the tunnel/proxy is up but can't reach this laptop — "
-                          f"point it at http://localhost:{MCP_PORT}")
+                          f"point it at http://localhost:{ports.mcp()}")
             elif r.status_code in (301, 302, 307, 308):
                 detail = f"redirects to {r.headers.get('location', '?')} — use that address instead"
             elif r.status_code == 404:
-                detail = f"HTTP 404: the address works but doesn't route to this app (service should be http://localhost:{MCP_PORT})"
+                detail = f"HTTP 404: the address works but doesn't route to this app (service should be http://localhost:{ports.mcp()})"
             else:
                 detail = f"HTTP {r.status_code} from the public address"
         except LookupError:

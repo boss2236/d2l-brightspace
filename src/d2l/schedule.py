@@ -11,16 +11,16 @@
 """
 import os
 import plistlib
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+from . import ports
+from .clients import command
 from .session import ROOT
 
-UV = shutil.which("uv") or "uv"
-SYNC = [UV, "run", "--directory", str(ROOT), "d2l", "sync"]
-APP = [UV, "run", "--directory", str(ROOT), "d2l", "app"]
+SYNC = command("sync")
+APP = command("app")
 
 
 def _times(times: str) -> list[tuple[int, int]]:
@@ -102,7 +102,7 @@ WantedBy=timers.target
     units = ["d2l-sync.timer"]
     if serve:
         _write(UNITS / "d2l-app.service", f"""[Unit]
-Description=Brightspace app: dashboard :8766, MCP + REST :8765 (d2l-brightspace)
+Description=Brightspace app: dashboard + MCP/REST (d2l-brightspace)
 After=network-online.target
 
 [Service]
@@ -119,7 +119,7 @@ WantedBy=default.target
 Type=Application
 Name=Brightspace
 Comment=Courses, deadlines and AI connections
-Exec=xdg-open http://127.0.0.1:8766
+Exec={_exec(command("open"))}
 Icon=accessories-dictionary
 Terminal=false
 Categories=Education;
@@ -173,7 +173,7 @@ def _mac_install(slots, serve):
     for p in agents:
         _run(["launchctl", "bootout", f"gui/{uid}", str(p)], check=False)
         _run(["launchctl", "bootstrap", f"gui/{uid}", str(p)])
-    print("loaded:", ", ".join(p.stem for p in agents), "| app: http://127.0.0.1:8766" if serve else "")
+    print("loaded:", ", ".join(p.stem for p in agents), f"| app: {ports.app_url()}" if serve else "")
 
 
 def _mac_status():
@@ -204,7 +204,7 @@ def _win_install(slots, serve):
     if serve:
         _run(["schtasks", "/Create", "/F", "/TN", "d2l-brightspace\\app", "/SC", "ONLOGON", "/TR", _cmdline(APP)])
         _run(["schtasks", "/Run", "/TN", "d2l-brightspace\\app"], check=False)
-    print("created Task Scheduler tasks under \\d2l-brightspace", "| app: http://127.0.0.1:8766" if serve else "")
+    print("created Task Scheduler tasks under \\d2l-brightspace", f"| app: {ports.app_url()}" if serve else "")
 
 
 def _win_tasks() -> list[str]:

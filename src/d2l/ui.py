@@ -11,7 +11,7 @@ import json
 import os
 import webbrowser
 
-from . import query, semestra, store
+from . import ports, query, semestra, store
 from .session import ROOT
 
 SOURCE_URL = "https://github.com/boss2236/d2l-brightspace"
@@ -348,7 +348,7 @@ function files() {
 }
 
 // --- Connect AI -------------------------------------------------------------------------------------------------
-// Live only when served by `d2l app` (http://127.0.0.1:8766); the saved dashboard.html shows how to get there.
+// Live only when served by `d2l app` (http://d2l.localhost); the saved dashboard.html shows how to get there.
 let ST = null;
 async function api(path, body) {
   const init = body === undefined ? {} : {method: "POST", body: JSON.stringify(body),
@@ -422,7 +422,7 @@ function connect() {
 function connectHtml() {
   if (!LIVE) return `<section class="panel"><h3>Connect your AI</h3>
     <p>This is the saved copy of the dashboard. Connections are managed in the live app:</p>
-    <p><a class="btn primary" href="http://127.0.0.1:8766/#connect">Open the Brightspace app</a></p>
+    <p><a class="btn primary" href="__APP_URL__#connect">Open the Brightspace app</a></p>
     <p class="muted small">Not opening? Start it with <code>uv run d2l app</code>, or install it to always run with
     <code>uv run d2l schedule install --serve</code>. Written guide: <code>docs/connect-ai.html</code>.</p></section>`;
   if (!ST) return '<p class="empty">Loading…</p>';
@@ -444,7 +444,7 @@ function connectHtml() {
     cloudflare: `<ol class="small setup">
          <li>In <a href="https://one.dash.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Zero Trust</a> → Networks → Tunnels → <b>Create a tunnel</b> → Cloudflared, give it a name.</li>
          <li>Copy the token from the install command shown (the long text after <code>--token</code>). You don’t need to run that command; this app runs the tunnel.</li>
-         <li>Under <b>Public hostname</b>, add e.g. <code>brightspace</code> . <i>your domain</i>, Service <b>HTTP</b> → <code>localhost:8765</code>.</li>
+         <li>Under <b>Public hostname</b>, add e.g. <code>brightspace</code> . <i>your domain</i>, Service <b>HTTP</b> → <code>localhost:__MCP_PORT__</code>.</li>
          <li>Paste both here.</li></ol>
        <div class="form">
          <label>Public hostname<input id="cf_host" ${typing} placeholder="brightspace.example.com" value="${esc(C.cf_host)}"></label>
@@ -454,8 +454,8 @@ function connectHtml() {
        ${P.cloudflared ? "" : '<p class="small" style="color:var(--crit)">Needs cloudflared: <code>sudo pacman -S cloudflared</code></p>'}
        <p><button class="btn primary" onclick="savePublic('cloudflare', this)">Save and connect</button></p>`,
     custom: `<p class="small">Use this if you already route a public address to this machine yourself. Point it at
-       <code>http://localhost:8765</code>: your own cloudflared config, Caddy or nginx, <code>tailscale funnel 8765</code>,
-       <code>ngrok http 8765</code>… With a public IP and router port forwarding, turn on the direct port and forward it to this laptop.</p>
+       <code>http://localhost:__MCP_PORT__</code>: your own cloudflared config, Caddy or nginx, <code>tailscale funnel __MCP_PORT__</code>,
+       <code>ngrok http __MCP_PORT__</code>… With a public IP and router port forwarding, turn on the direct port and forward it to this laptop.</p>
        <div class="form">
          <label>Public address<input id="custom_url" ${typing} placeholder="https://brightspace.example.com  or  http://203.0.113.7:8767" value="${esc(C.custom_url)}"></label>
          <label class="check"><input id="direct" type="checkbox" ${typing} ${C.direct ? "checked" : ""}> Open a direct port on this computer (for IP / port forwarding / a proxy on another machine)</label>
@@ -612,7 +612,7 @@ def render(live: bool = False) -> str:
     # AGPL §13: people using this over a network must be offered its source; forks set D2L_SOURCE_URL to theirs
     source = html.escape(os.environ.get("D2L_SOURCE_URL") or SOURCE_URL, quote=True)
     return (PAGE.replace("__DATA__", blob).replace("__LIVE__", "true" if live else "false")
-            .replace("__SOURCE__", source))
+            .replace("__SOURCE__", source).replace("__APP_URL__", ports.app_url()).replace("__MCP_PORT__", str(ports.mcp())))
 
 
 def build(open_browser: bool = True) -> str:

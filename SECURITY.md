@@ -26,9 +26,9 @@ All of these are gitignored. `.env` is written with owner-only permissions (0600
 - **Your password is never handled.** You sign in yourself in a real browser window; only the resulting cookies are
   kept.
 - **Local by default.**
-  - The dashboard and controls listen on `127.0.0.1:8766`, and only accept requests whose Host is localhost.
+  - The dashboard and controls listen on `127.0.0.1:<app port>` (random per install; `d2l ports`), and only accept requests whose Host is localhost.
     Actions also need a custom header that other websites can't send (CSRF and DNS-rebinding protection).
-  - The MCP/REST server listens on `127.0.0.1:8765` and requires the API token for everything except `/health`.
+  - The MCP/REST server listens on `127.0.0.1:<MCP port>` and requires the API token for everything except `/health`.
 - **The public link is opt-in.** It's off until you turn it on in the app. It only exposes the token-protected
   MCP/REST port, never the control page. Anyone who has your connector link (which contains the token) can read
   your data. Keep it secret, and use **New token** in the app if it leaks.

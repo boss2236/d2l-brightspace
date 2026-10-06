@@ -28,7 +28,37 @@ a logged-in user, meaning the cookies plus the `X-Csrf-Token` the web app keeps 
 
 Confirmed endpoints, dead ends and gotchas are in `NOTES.md`.
 
-## Setup
+## Install
+
+One command on Linux or macOS (Windows: inside WSL):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/boss2236/d2l-brightspace/main/install.sh | bash
+```
+
+It walks you through everything, and you can re-run it any time to update:
+- **Brings its own tools.** A pinned, checksum-verified `uv`, then Python 3.11+ if needed, the locked
+  dependencies and Chromium. It offers to install git/curl if they're missing. Nothing global is replaced.
+- **Asks for your school's Brightspace address** and checks it answers like Brightspace.
+- **Picks two random free ports** (the app, and the AI connection) and tells you which. They're saved in `.env`;
+  if another program takes one later, the app moves to a new free port by itself and everything follows.
+  `d2l ports` shows them.
+- **Opens a browser window once for you to sign in** (SSO + MFA as usual), then downloads this term's courses.
+- **Lets you pick which AI apps get access:** Claude Code, Codex, Hermes Agent, Gemini CLI, VS Code, Claude Desktop.
+- **Keeps it fresh:** syncs 3× a day and runs the app in the background.
+- **Makes `d2l.localhost` work:** type it in your browser and the app opens. A tiny forwarder on port 80 points
+  it at the app's port; on Linux this asks for your password once and runs as you, allowed nothing but port 80.
+
+Every change is recorded and can be undone. Your shell files and AI-app configs go back to exactly how they were:
+
+```bash
+bash ~/.local/share/d2l-brightspace/app/install.sh --uninstall   # asks before deleting your data
+bash ~/.local/share/d2l-brightspace/app/install.sh --purge       # everything, including data and sign-in
+```
+
+`--help` lists the options for scripted installs (`--yes`, `--school URL`, `--apps codex,hermes`, `--no-schedule`…).
+
+### Manual setup (for development)
 
 ```bash
 cp .env.example .env          # set D2L_BASE_URL, e.g. https://your-school.brightspace.com
@@ -37,6 +67,7 @@ uv run playwright install chromium
 uv run d2l login              # sign in in the window that opens
 uv run d2l sync               # first run records a baseline and downloads course files
 uv run d2l schedule install   # then keep it fresh: 08:00, 14:00, 20:00 (systemd user timer)
+uv run d2l connect all        # add it to every AI app found on this computer (d2l disconnect --all undoes it)
 ```
 
 ## Use
@@ -54,7 +85,7 @@ Full reference: [`docs/commands.html`](docs/commands.html). AI and n8n setup: [`
 
 ### Connect an AI
 
-The easy way: open **Brightspace** from the app launcher (the `d2l app` service at http://127.0.0.1:8766) →
+The easy way: open **http://d2l.localhost** (or **Brightspace** from the app launcher, or `d2l open`) →
 **Connect AI**. For cloud AIs (claude.ai, ChatGPT) pick how the public link is made:
 - **Quick link.** A Cloudflare Quick Tunnel. No setup, but slower, and the address changes on restart.
 - **My Cloudflare tunnel.** Your domain with a fixed address; paste a tunnel token and hostname.
@@ -68,8 +99,8 @@ also adds the connector to local AI apps with one click, and can sync or log in 
 same by hand.
 
 ```bash
-claude mcp add -s user brightspace -- uv run --directory "$PWD" d2l mcp     # Claude Code
-uv run d2l serve                                                           # HTTP MCP + REST on 127.0.0.1:8765
+uv run d2l connect codex hermes      # or: all · `d2l connect` alone shows what's installed
+uv run d2l serve                     # HTTP MCP + REST on 127.0.0.1:<your MCP port> (`d2l ports`)
 ```
 
 Tools the AI gets:
@@ -118,7 +149,10 @@ src/d2l/
   extract.py   text from PDF / DOCX / PPTX / HTML (incl. zipped HTML lessons)
   query.py     every read: deadlines, search, grades, briefs… (shared by CLI, dashboard, MCP, REST)
   server.py    MCP (stdio + streamable HTTP) and REST, token-gated
-  app.py       `d2l app`: live dashboard :8766 with the Connect AI tab; runs MCP/REST :8765 and the public link
+  app.py       `d2l app`: live dashboard with the Connect AI tab; runs MCP/REST and the public link
+  clients.py   AI apps on this computer: detect, connect, disconnect (Claude Code, Codex, Hermes, Gemini, VS Code…)
+  ports.py     the per-install ports, chosen once, moved automatically if something else takes them
+  web.py       http://d2l.localhost: a tiny port-80 redirect to the app's port
   public.py    public link modes (quick / own Cloudflare tunnel / own URL or IP), direct port, reachability check
   notify.py    desktop, Telegram, Discord, webhook
   schedule.py  sync timer + always-on app: systemd (Linux), launchd (macOS), Task Scheduler (Windows)

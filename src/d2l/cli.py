@@ -73,12 +73,24 @@ def main() -> None:
     u = sub.add_parser("ui", help="build dashboard.html from the stored data and open it")
     u.add_argument("--no-open", action="store_true", help="just write dashboard.html, don't open a browser")
 
+    co = sub.add_parser("connect", help="add Brightspace to AI apps on this computer (Claude Code, Codex, Hermes…)")
+    co.add_argument("apps", nargs="*", help="app keys, or `all` for every installed one; none: show what's here")
+    co.add_argument("--list", action="store_true",
+                    help="one line per app: key, name, installed, connected, connected-to-this-install (tab-separated)")
+    dc = sub.add_parser("disconnect", help="take Brightspace out of AI apps again")
+    dc.add_argument("apps", nargs="*", help="app keys")
+    dc.add_argument("--all", action="store_true", help="every app connected to this install (not to other copies)")
+    po = sub.add_parser("ports", help="show this install's ports and app address")
+    po.add_argument("--assign", action="store_true", help="pick random free ports if none are set yet, or if one is taken")
+    sub.add_parser("open", help="open the Brightspace app in your browser")
+    we = sub.add_parser("web", help="http://d2l.localhost: run the forwarder, or install/remove it as a service")
+    we.add_argument("action", nargs="?", choices=["run", "install", "remove", "status"], default="run")
     sub.add_parser("mcp", help="run the MCP server on stdio (for Claude, Gemini CLI, Copilot, Cursor…)")
     sv = sub.add_parser("serve", help="run MCP over HTTP + the REST API (for apps, n8n, remote AIs)")
     sv.add_argument("--host", default="127.0.0.1")
-    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--port", type=int, default=None, help="default: D2L_MCP_PORT (see `d2l ports`)")
 
-    ap_ = sub.add_parser("app", help="the dashboard as a live app at http://127.0.0.1:8766, with the Connect AI tab")
+    ap_ = sub.add_parser("app", help="the dashboard as a live app at http://d2l.localhost, with the Connect AI tab")
     ap_.add_argument("--open", action="store_true", help="open it in the browser")
 
     se2 = sub.add_parser("semestra", help="send grades to Semestra: export its import JSON, or push to a connector")
@@ -137,11 +149,58 @@ def main() -> None:
     elif args.cmd == "get":
         from . import sync
         print(sync.get_file(args.id))
+    elif args.cmd == "ports":
+        from . import ports
+        if args.assign and ports.ours_running():
+            args.assign = False                            # its ports are busy because it's running: keep them
+        for change in (ports.assign(new=True) if args.assign else []):
+            print(f"chose {change}")
+        print(f"app        {ports.app_url()}   (also http://127.0.0.1:{ports.ui()})")
+        print(f"MCP + REST http://127.0.0.1:{ports.mcp()}/mcp  ·  /api")
+    elif args.cmd == "open":
+        import webbrowser
+        from . import ports
+        if not ports.ours_running():
+            print("the app isn't running; start it with `d2l app` or `d2l schedule install --serve`")
+        webbrowser.open(ports.app_url())
+    elif args.cmd == "web":
+        from . import web
+        {"run": web.run, "install": web.install, "remove": web.remove, "status": web.status}[args.action]()
+    elif args.cmd in ("connect", "disconnect"):
+        _connect(args)
     elif args.cmd == "ui":
         from . import ui
         ui.build(open_browser=not args.no_open)
     else:
         _local(args)
+
+
+def _connect(args) -> None:
+    from . import clients
+    apps = clients.view()
+    if args.cmd == "connect" and (args.list or not args.apps):
+        for a in apps:
+            if args.list:
+                print(f"{a['key']}\t{a['name']}\t{int(a['installed'])}\t{int(a['connected'])}\t{int(a['mine'])}")
+            else:
+                state = ("connected" + ("" if a["mine"] else " (to another copy)") if a["connected"]
+                         else "installed" if a["installed"] else "not found")
+                print(f"{a['key']:<16}{a['name']:<20}{state}")
+        return
+    if args.cmd == "connect":
+        keys = [a["key"] for a in apps if a["installed"]] if args.apps == ["all"] else args.apps
+    else:
+        keys = [a["key"] for a in apps if a["mine"]] if args.all else args.apps
+    unknown = [k for k in keys if k not in clients.CLIENTS]
+    if unknown:
+        raise SystemExit(f"unknown app: {', '.join(unknown)} (known: {', '.join(clients.CLIENTS)})")
+    failed = False
+    for k in keys:
+        r = (clients.connect if args.cmd == "connect" else clients.disconnect)(k)
+        failed |= not r["ok"]
+        print(f"{'✓' if r['ok'] else '✗'} {clients.CLIENTS[k]['name']}: {r['message']}")
+    if failed:
+        raise SystemExit(1)
 
 
 def _local(args) -> None:

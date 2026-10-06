@@ -2,7 +2,7 @@
 """Your Brightspace as tools for any AI (MCP) and as a small JSON API for apps and n8n.
 
     uv run d2l mcp      stdio MCP — what Claude Code, Claude Desktop, Gemini CLI, VS Code Copilot, Cursor… launch
-    uv run d2l serve    HTTP on 127.0.0.1:8765 — /mcp (streamable HTTP MCP) + /api/* (REST) behind a bearer token
+    uv run d2l serve    HTTP on 127.0.0.1:<D2L_MCP_PORT> — /mcp (streamable HTTP MCP) + /api/* (REST) behind a bearer token
 
 Everything reads data/d2l.db (kept fresh by `d2l sync`); nothing here talks to Brightspace, and every tool is
 read-only. docs/connect-ai.html has copy-paste setup for each client.
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from . import query, store
+from . import ports, query, store
 from .session import ROOT
 
 RO = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
@@ -141,7 +141,7 @@ def get_file_link(id: int) -> dict:
     if r[1] != "File":
         return {"title": r[0], "kind": r[1], "url": r[4], "note": "this is a link, not a file"}
     out = {"title": r[0], "type": r[2], "stored_locally": r[3] == "ok",
-           "local_app": f"http://127.0.0.1:8766/files/{int(id)}",
+           "local_app": ports.app_url(f"/files/{int(id)}"),
            "brightspace": r[4]}
     base = _public_base()
     if base and r[3] == "ok":
@@ -398,7 +398,8 @@ def connector_url(public_host: str) -> str:
     return f"https://{public_host}/c/{token()}/mcp"
 
 
-def run_http(host: str = "127.0.0.1", port: int = 8765) -> None:
+def run_http(host: str = "127.0.0.1", port: int | None = None) -> None:
+    port = port or ports.mcp()
     import uvicorn
 
     app, _ = build_http_app(host)

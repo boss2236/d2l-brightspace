@@ -1,32 +1,28 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """`d2l app`: the dashboard as a live local app, plus everything needed to connect AIs without the terminal.
 
-    http://127.0.0.1:8766   dashboard + "Connect AI" tab (this computer only, no token)
-    http://127.0.0.1:8765   MCP + REST for AIs and apps (token-gated; the only thing the public tunnel reaches)
+    http://d2l.localhost      dashboard + "Connect AI" tab (this computer only, no token; see web.py)
+    127.0.0.1:<D2L_MCP_PORT>  MCP + REST for AIs and apps (token-gated; the only thing the public tunnel reaches)
 
 From the Connect AI tab you can set up the public link for cloud AIs (claude.ai, ChatGPT) — quick link, your own
 Cloudflare tunnel, or your own URL/IP (see public.py) — see whether it is really reachable, add the connector to AI
 apps on this computer, run a sync and log in again. Two ports keep the control page off the public link entirely:
-tunnels and the direct port only ever reach 8765.
+tunnels and the direct port only ever reach the MCP port. Both ports are chosen per install (ports.py).
 """
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import notify, public, query, server, store, ui
+from . import clients, notify, ports, public, query, server, store, ui
 from .session import ROOT
 
-MCP_PORT, UI_PORT = 8765, 8766
 SETTINGS = ROOT / "data" / "app.json"
 D2L = [sys.executable, "-m", "d2l"]         # this same install, on any OS
-UV = shutil.which("uv") or "uv"
-STDIO_ARGS = ["run", "--directory", str(ROOT), "d2l", "mcp"]
 
 
 def _settings() -> dict:
@@ -97,73 +93,15 @@ class Job:
         return {"state": self.state, "log": self.log[-12:], "started": self.started, "finished": self.finished}
 
 
-# --- AI apps on this computer -----------------------------------------------------------------------------------
-
-def _json_has(path: str, *keys: str) -> bool:
-    try:
-        d = json.loads(Path(path).expanduser().read_text() or "{}")
-    except (OSError, ValueError):
-        return False
-    for k in keys:
-        d = d.get(k, {}) if isinstance(d, dict) else {}
-    return bool(d)
-
-
-def _json_add(path: str, section: str, entry: dict) -> None:
-    p = Path(path).expanduser()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    raw = p.read_text().strip() if p.exists() else ""
-    if raw and not p.with_name(p.name + ".bak-d2l").exists():
-        p.with_name(p.name + ".bak-d2l").write_text(raw)
-    d = json.loads(raw) if raw else {}
-    d.setdefault(section, {})["brightspace"] = entry
-    p.write_text(json.dumps(d, indent=2))
-
-
-CLIENTS = {
-    "claude-code": {
-        "name": "Claude Code", "installed": lambda: bool(shutil.which("claude")),
-        "connected": lambda: _json_has("~/.claude.json", "mcpServers", "brightspace"),
-        "add": lambda: ["claude", "mcp", "add", "-s", "user", "brightspace", "--", UV, *STDIO_ARGS],
-        "how": "Ask in any Claude Code session, e.g. “what’s due this week?”"},
-    "gemini": {
-        "name": "Gemini CLI", "installed": lambda: bool(shutil.which("gemini")),
-        "connected": lambda: _json_has("~/.gemini/settings.json", "mcpServers", "brightspace"),
-        "add": lambda: ["gemini", "mcp", "add", "-s", "user", "brightspace", UV, "--", *STDIO_ARGS],
-        "how": "Start gemini in a terminal and ask; /mcp lists the tools."},
-    "codex": {
-        "name": "Codex CLI", "installed": lambda: bool(shutil.which("codex")),
-        "connected": lambda: "[mcp_servers.brightspace]" in (Path("~/.codex/config.toml").expanduser().read_text()
-                                                              if Path("~/.codex/config.toml").expanduser().exists() else ""),
-        "add": lambda: ["codex", "mcp", "add", "brightspace", "--", UV, *STDIO_ARGS],
-        "how": "Start codex in a terminal and ask."},
-    "vscode": {
-        "name": "VS Code (Copilot)", "installed": lambda: bool(shutil.which("code")),
-        "connected": lambda: _json_has("~/.config/Code/User/mcp.json", "servers", "brightspace"),
-        "add": lambda: _json_add("~/.config/Code/User/mcp.json", "servers", {"type": "stdio", "command": UV, "args": STDIO_ARGS}),
-        "how": "Copilot Chat → Agent mode → tools picker. VS Code may ask once to trust the server."},
-    "claude-desktop": {
-        "name": "Claude Desktop", "installed": lambda: Path("~/.config/Claude").expanduser().exists(),
-        "connected": lambda: _json_has("~/.config/Claude/claude_desktop_config.json", "mcpServers", "brightspace"),
-        "add": lambda: _json_add("~/.config/Claude/claude_desktop_config.json", "mcpServers", {"command": UV, "args": STDIO_ARGS}),
-        "how": "Restart Claude Desktop, then turn Brightspace on in the chat’s tools menu."},
-}
-
+# --- AI apps on this computer (registry and edits live in clients.py) --------------------------------------------
 
 async def add_client(key: str) -> dict:
-    c = CLIENTS[key]
-    action = c["add"]()
-    if isinstance(action, list):                          # a CLI command; the others already wrote their file
-        proc = await asyncio.create_subprocess_exec(*action, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-        out, _ = await proc.communicate()
-        if proc.returncode:
-            return {"ok": False, "message": out.decode(errors="ignore")[-300:]}
-    return {"ok": c["connected"](), "message": c["how"]}
+    r = await asyncio.to_thread(clients.connect, key)
+    return {"ok": r["ok"], "message": r["message"]}
 
 
 def clients_view() -> list[dict]:
-    return [{"key": k, "name": c["name"], "installed": c["installed"](), "connected": c["connected"](), "how": c["how"]}
-            for k, c in CLIENTS.items()]
+    return clients.view()
 
 
 # --- the local control page -------------------------------------------------------------------------------------
@@ -195,7 +133,7 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
     from starlette.routing import Mount, Route
     from starlette.staticfiles import StaticFiles
 
-    local = {f"127.0.0.1:{UI_PORT}", f"localhost:{UI_PORT}"}
+    local = {f"{h}:{ports.ui()}" for h in ("127.0.0.1", "localhost", ports.HOST)}
 
     async def guard(request: Request, handler):
         # DNS-rebinding and cross-site protection: right Host, and POSTs need a header a foreign page can't send
@@ -225,7 +163,7 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
         return JSONResponse({
             "public": link.view(), "sync": jobs["sync"].view(), "login": jobs["login"].view(),
             "last_sync": query.local(last), "session_expired": expired, "clients": clients_view(),
-            "rest": {"base": f"http://127.0.0.1:{MCP_PORT}/api", "mcp": f"http://127.0.0.1:{MCP_PORT}/mcp",
+            "rest": {"base": f"http://127.0.0.1:{ports.mcp()}/api", "mcp": f"http://127.0.0.1:{ports.mcp()}/mcp",
                      "token": server.token()},
             "notify": {"channels": notify.channels(), "webhook": bool(os.environ.get("D2L_WEBHOOK_URL"))},
             "semestra": semestra_view()})
@@ -309,7 +247,7 @@ def build_ui_app(link: public.PublicLink, jobs: dict[str, Job]):
     async def add(request: Request):
         async def fn(req):
             key = req.path_params["key"]
-            if key not in CLIENTS:
+            if key not in clients.CLIENTS:
                 return JSONResponse({"ok": False, "message": "unknown app"}, status_code=404)
             return JSONResponse(await add_client(key))
         return await guard(request, fn)
@@ -414,11 +352,20 @@ async def serve_file(topic_id: int, download: bool):
 def run(open_browser: bool = False) -> None:
     import uvicorn
 
+    if ports.ours_running():
+        print(f"already running: {ports.app_url()}")
+        if open_browser:
+            import webbrowser
+            webbrowser.open(ports.app_url("/#connect"))
+        return
+    for change in ports.assign():                         # a port taken by another program: move, and say so
+        print(f"port changed: {change}")
+
     async def main():
         mcp_app, security = server.build_http_app()
         link, jobs = public.PublicLink(security), {"sync": Job("sync"), "login": Job("login")}
-        servers = [uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=MCP_PORT, log_level="warning")),
-                   uvicorn.Server(uvicorn.Config(build_ui_app(link, jobs), host="127.0.0.1", port=UI_PORT,
+        servers = [uvicorn.Server(uvicorn.Config(mcp_app, host="127.0.0.1", port=ports.mcp(), log_level="warning")),
+                   uvicorn.Server(uvicorn.Config(build_ui_app(link, jobs), host="127.0.0.1", port=ports.ui(),
                                                  log_level="warning"))]
         # start the public link once the MCP server is listening, so its first reachability check can pass
         async def start_link():
@@ -426,10 +373,11 @@ def run(open_browser: bool = False) -> None:
             await link.apply(dict(public_settings()))
         asyncio.create_task(start_link())
         asyncio.create_task(watch_semestra(jobs))
-        print(f"Brightspace app  http://127.0.0.1:{UI_PORT}\nMCP + REST       http://127.0.0.1:{MCP_PORT}")
+        print(f"Brightspace app  {ports.app_url()}   (also http://127.0.0.1:{ports.ui()})\n"
+              f"MCP + REST       http://127.0.0.1:{ports.mcp()}")
         if open_browser:
             import webbrowser
-            webbrowser.open(f"http://127.0.0.1:{UI_PORT}/#connect")
+            webbrowser.open(ports.app_url("/#connect"))
         try:
             await asyncio.gather(*(s.serve() for s in servers))
         finally:
