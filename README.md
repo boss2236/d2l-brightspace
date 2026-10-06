@@ -48,6 +48,7 @@ It walks you through everything, and you can re-run it any time to update:
 - **Keeps it fresh:** syncs 3× a day and runs the app in the background.
 - **Makes `d2l.localhost` work:** type it in your browser and the app opens. A tiny forwarder on port 80 points
   it at the app's port; on Linux this asks for your password once and runs as you, allowed nothing but port 80.
+  See [d2l.localhost and port 80](#d2llocalhost-and-port-80).
 
 Every change is recorded and can be undone. Your shell files and AI-app configs go back to exactly how they were:
 
@@ -57,6 +58,25 @@ bash ~/.local/share/d2l-brightspace/app/install.sh --purge       # everything, i
 ```
 
 `--help` lists the options for scripted installs (`--yes`, `--school URL`, `--apps codex,hermes`, `--no-schedule`…).
+
+### d2l.localhost and port 80
+
+Browsers send every `*.localhost` name to your own computer, and an address without a port means port 80. So the
+app always works at `http://d2l.localhost:<app port>` with no setup. Plain `http://d2l.localhost` needs something
+answering on port 80: the forwarder. It only redirects your browser to the app's current port; it doesn't carry
+the app's traffic, and it listens on this computer only, not the network.
+
+```bash
+d2l web             # is it on? also shows the app and MCP ports
+d2l web install     # turn it on (Linux: asks for your password once)
+d2l web remove      # turn it off and free port 80
+```
+
+Only one program can use port 80 at a time:
+- **Something already uses port 80** (nginx, Apache, Docker…): the installer and `d2l web install` leave it alone
+  and you use `http://d2l.localhost:<app port>` instead.
+- **You start such a program later:** it will fail with "address already in use" while the forwarder holds
+  port 80. Nothing is damaged; run `d2l web remove` and start it again.
 
 ### Manual setup (for development)
 
